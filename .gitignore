@@ -1,0 +1,14 @@
+config.nix
+keys/
+secrets/secrets.nix
+secrets/*.age
+secrets/server-keys/
+result
+result-*
+.direnv/
+.DS_Store
+Thumbs.db
+*.kubeconfig
+kubeconfig
+backups/
+*.bak.*
