@@ -48,10 +48,12 @@
   services.xserver.enable = false;
 
   # Swap (8GB swapfile)
-  swapDevices = [{
-    device = "/swapfile";
-    size = 8192;
-  }];
+  swapDevices = [
+    {
+      device = "/swapfile";
+      size = 8192;
+    }
+  ];
 
   # Enable documentation
   documentation.enable = true;

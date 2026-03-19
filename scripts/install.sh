@@ -201,8 +201,7 @@ ssh-add -L 2>/dev/null | grep "nixos-anywhere" | while read -r key; do
 done
 
 ADMIN_USER=$(grep 'adminUser =' "$CONFIG_FILE" | sed 's/.*"\(.*\)".*/\1/')
-ADMIN_KEY="$PROJECT_DIR/keys/admin.pub"
-SSH_OPTS="-o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+SSH_OPTS=(-o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
 
 # Remove old host key (reinstall generates new server keys)
 ssh-keygen -R "$SERVER_IP" 2>/dev/null || true
@@ -211,7 +210,7 @@ echo ""
 echo -e "${YELLOW}Waiting for the server to reboot...${NC}"
 sleep 10
 for i in $(seq 1 30); do
-    if ssh $SSH_OPTS "$ADMIN_USER@$SERVER_IP" "echo ok" &>/dev/null; then
+    if ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$SERVER_IP" "echo ok" &>/dev/null; then
         echo -e "${GREEN}✓ Server accessible${NC}"
         break
     fi
@@ -219,7 +218,7 @@ for i in $(seq 1 30); do
     sleep 10
 done
 
-if ! ssh $SSH_OPTS "$ADMIN_USER@$SERVER_IP" "echo ok" &>/dev/null; then
+if ! ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$SERVER_IP" "echo ok" &>/dev/null; then
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║              Installation completed!                         ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
@@ -231,7 +230,7 @@ fi
 
 echo -e "${YELLOW}Waiting for services to start...${NC}"
 for i in $(seq 1 100); do
-    JOBS=$(ssh $SSH_OPTS "$ADMIN_USER@$SERVER_IP" "sudo systemctl list-jobs --no-pager 2>/dev/null | grep -c 'running\|waiting'" 2>/dev/null || echo "99")
+    JOBS=$(ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$SERVER_IP" "sudo systemctl list-jobs --no-pager 2>/dev/null | grep -c 'running\|waiting'" 2>/dev/null || echo "99")
     if [ "$JOBS" -le 1 ]; then
         echo -e "${GREEN}✓ Services started${NC}"
         break
@@ -243,9 +242,9 @@ done
 # Verify K3s
 echo -e "${YELLOW}Verifying K3s...${NC}"
 for i in $(seq 1 30); do
-    if ssh $SSH_OPTS "$ADMIN_USER@$SERVER_IP" "sudo k3s kubectl get nodes" &>/dev/null; then
+    if ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$SERVER_IP" "sudo k3s kubectl get nodes" &>/dev/null; then
         echo -e "${GREEN}✓ K3s running${NC}"
-        ssh $SSH_OPTS "$ADMIN_USER@$SERVER_IP" "sudo k3s kubectl get nodes"
+        ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$SERVER_IP" "sudo k3s kubectl get nodes"
         break
     fi
     echo "Waiting for K3s... ($i/30)"
