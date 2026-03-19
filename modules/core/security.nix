@@ -15,10 +15,21 @@
     allowedTCPPorts = [
       80 # HTTP  - Traefik
       443 # HTTPS - Traefik
+      8088 # Omada Controller HTTP
+      8043 # Omada Controller HTTPS
+      8843 # Omada Controller portal HTTPS
+      29811 # Omada Controller manager v1
+      29812 # Omada Controller adopt v1
+      29813 # Omada Controller upgrade v1
+      29814 # Omada Controller manager v2
+      29815 # Omada Controller transfer v2
+      29816 # Omada Controller
+      29817 # Omada Controller
     ];
 
     allowedUDPPorts = [
-      # 51820 # WireGuard - Si lo usas directamente
+      29810 # Omada Controller discovery
+      27001 # Omada Controller app discovery
     ];
   };
 

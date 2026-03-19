@@ -112,7 +112,7 @@ let
 
     # K8s Secrets backup (all namespaces)
     echo "Backing up K8s Secrets..."
-    for NS in authentik cert-manager homarr immich media monitoring nextcloud syncthing traefik-system vaultwarden; do
+    for NS in authentik cert-manager extra homarr immich media monitoring nextcloud syncthing traefik-system vaultwarden; do
       if ${kubectl} get namespace "$NS" &>/dev/null; then
         ${kubectl} get secrets -n "$NS" -o yaml > "${dumpDir}/k8s-secrets/$NS-secrets.yaml" 2>/dev/null || true
       fi
