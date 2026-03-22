@@ -47,11 +47,11 @@
   # Disable graphical interface
   services.xserver.enable = false;
 
-  # Swap (8GB swapfile)
+  # Swap (16GB swapfile)
   swapDevices = [
     {
       device = "/swapfile";
-      size = 8192;
+      size = 16384;
     }
   ];
 

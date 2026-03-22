@@ -318,7 +318,7 @@ in
                     cpu: 100m
                     memory: 256Mi
                   limits:
-                    memory: 2Gi
+                    memory: 1536Mi
                 volumeMounts:
                 - name: library
                   mountPath: /usr/src/app/upload
@@ -370,7 +370,7 @@ in
                     cpu: 200m
                     memory: 512Mi
                   limits:
-                    memory: 3Gi
+                    memory: 1536Mi
                 volumeMounts:
                 - name: cache
                   mountPath: /cache
