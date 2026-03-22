@@ -134,7 +134,7 @@ in
                 "dont_count_slow_torrents": true,
                 "upnp": false,
                 "max_ratio_enabled": true,
-                "max_ratio": 1.0,
+                "max_ratio": 2.0,
                 "max_ratio_act": 0,
                 "max_seeding_time_enabled": true,
                 "max_seeding_time": 10080,

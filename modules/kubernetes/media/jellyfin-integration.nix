@@ -281,16 +281,36 @@ in
 
               if [ -n "$AUTH_ID" ]; then
                 echo "    Admin created (id: $AUTH_ID)"
-                echo "  Jellyseerr: initialized with Jellyfin + Radarr/Sonarr"
 
-                sleep 3
+                # Write Jellyfin libraries to settings (scale down to avoid conflicts)
+                kill $JS_PF_PID 2>/dev/null || true
+                sleep 2
+                $KUBECTL scale deploy -n ${ns} jellyseerr --replicas=0 2>/dev/null
+                for i in $(seq 1 30); do
+                  REMAINING=$($KUBECTL get pods -n ${ns} -l app=jellyseerr --no-headers 2>/dev/null | wc -l)
+                  [ "$REMAINING" -eq 0 ] && break
+                  sleep 2
+                done
+
                 JSEERR_SETTINGS=$(find /var/lib/rancher/k3s/storage -name "settings.json" -path "*jellyseerr*" 2>/dev/null | head -1)
                 JELLYSEERR_API_KEY=""
                 if [ -n "$JSEERR_SETTINGS" ] && [ -f "$JSEERR_SETTINGS" ]; then
                   JELLYSEERR_API_KEY=$($JQ -r '.main.apiKey // empty' "$JSEERR_SETTINGS" 2>/dev/null || echo "")
+
+                  if [ -n "$JELLYFIN_LIBRARIES" ] && [ "$JELLYFIN_LIBRARIES" != "[]" ]; then
+                    $JQ --argjson libs "$JELLYFIN_LIBRARIES" \
+                      '.jellyfin.libraries = ($libs | map(select(.name != "Music")))' \
+                      "$JSEERR_SETTINGS" > "''${JSEERR_SETTINGS}.tmp" && mv "''${JSEERR_SETTINGS}.tmp" "$JSEERR_SETTINGS"
+                    echo "    Jellyfin libraries configured"
+                  fi
                 fi
+
+                $KUBECTL scale deploy -n ${ns} jellyseerr --replicas=1 2>/dev/null
+                $KUBECTL rollout status deployment/jellyseerr -n ${ns} --timeout=120s 2>/dev/null || true
+
                 store_credentials "${ns}" "jellyseerr-credentials" \
                   "API_KEY=$JELLYSEERR_API_KEY" "URL=https://$(hostname requests)"
+                echo "  Jellyseerr: initialized with Jellyfin + Radarr/Sonarr"
               else
                 echo "  Jellyseerr: Auth failed - $(echo "$AUTH_RESULT" | $JQ -r '.message // "unknown error"' 2>/dev/null)"
               fi
@@ -333,6 +353,24 @@ in
           fi
         fi
 
+        update_notification_key() {
+          local deploy=$1 port=$2 arr_api=$3 display_name=$4 existing="$5"
+          local notif_id current_key updated
+          notif_id=$(echo "$existing" | $JQ -r '.id')
+          current_key=$(echo "$existing" | $JQ -r '.fields[] | select(.name == "apiKey") | .value')
+          if [ "$current_key" != "$JELLYFIN_API" ]; then
+            updated=$(echo "$existing" | $JQ '(.fields[] | select(.name == "apiKey")).value = "'"$JELLYFIN_API"'"')
+            $KUBECTL exec -n ${ns} deploy/$deploy -- \
+              ${curl} -s -X PUT "http://localhost:$port/api/v3/notification/$notif_id" \
+              -H "X-Api-Key: $arr_api" \
+              -H "Content-Type: application/json" \
+              -d "$updated" >/dev/null 2>&1
+            echo "  $display_name -> Jellyfin: API key updated"
+          else
+            echo "  $display_name -> Jellyfin: already configured"
+          fi
+        }
+
         # Sonarr -> Jellyfin
         if [ -n "$JELLYFIN_API" ] && wait_for_app_pod "sonarr"; then
           EXISTING=$($KUBECTL exec -n ${ns} deploy/sonarr -- \
@@ -373,7 +411,7 @@ in
               fi
             fi
           else
-            echo "  Sonarr -> Jellyfin: already configured"
+            update_notification_key "sonarr" "8989" "$SONARR_API" "Sonarr" "$EXISTING"
           fi
         fi
 
@@ -417,7 +455,7 @@ in
               fi
             fi
           else
-            echo "  Radarr -> Jellyfin: already configured"
+            update_notification_key "radarr" "7878" "$RADARR_API" "Radarr" "$EXISTING"
           fi
         fi
 
@@ -449,7 +487,7 @@ in
               echo "  Sonarr ES -> Jellyfin: configured"
             fi
           else
-            echo "  Sonarr ES -> Jellyfin: already configured"
+            update_notification_key "sonarr-es" "8989" "$SONARR_ES_API" "Sonarr ES" "$EXISTING"
           fi
         fi
 
@@ -481,7 +519,7 @@ in
               echo "  Radarr ES -> Jellyfin: configured"
             fi
           else
-            echo "  Radarr ES -> Jellyfin: already configured"
+            update_notification_key "radarr-es" "7878" "$RADARR_ES_API" "Radarr ES" "$EXISTING"
           fi
         fi
 

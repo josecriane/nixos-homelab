@@ -304,7 +304,14 @@ in
                   local CLIENT_ID="$3"
                   local CLIENT_SECRET="$4"
                   local LAUNCH_URL="$5"
-                  local REDIRECT_URI="$6"
+                  shift 5
+                  local REDIRECT_URIS_JSON="["
+                  local first=true
+                  for uri in "$@"; do
+                    [ "$first" = true ] && first=false || REDIRECT_URIS_JSON+=","
+                    REDIRECT_URIS_JSON+="{\"url\": \"$uri\", \"matching_mode\": \"strict\"}"
+                  done
+                  REDIRECT_URIS_JSON+="]"
 
                   # Check if provider already exists
                   PROVIDER_PK=$($CURL -s "$API/providers/oauth2/?search=$APP_NAME+Provider" -H "$AUTH" | $JQ -r '.results[0].pk // empty')
@@ -321,7 +328,7 @@ in
                         \"client_secret\": \"$CLIENT_SECRET\",
                         \"signing_key\": \"$SIGNING_KEY_PK\",
                         \"property_mappings\": $SCOPE_MAPPINGS,
-                        \"redirect_uris\": [{\"url\": \"$REDIRECT_URI\", \"matching_mode\": \"strict\"}],
+                        \"redirect_uris\": $REDIRECT_URIS_JSON,
                         \"include_claims_in_id_token\": true,
                         \"access_code_validity\": \"minutes=1\",
                         \"access_token_validity\": \"hours=1\",
@@ -346,7 +353,7 @@ in
                     $CURL -s -X PATCH "$API/providers/oauth2/$PROVIDER_PK/" -H "$AUTH" -H "Content-Type: application/json" \
                       -d "{
                         \"client_secret\": \"$CLIENT_SECRET\",
-                        \"redirect_uris\": [{\"url\": \"$REDIRECT_URI\", \"matching_mode\": \"strict\"}]
+                        \"redirect_uris\": $REDIRECT_URIS_JSON
                       }" > /dev/null
                     echo "$APP_NAME Provider: updated (pk=$PROVIDER_PK)"
                   fi
@@ -391,7 +398,8 @@ in
 
                 create_oidc_app "Immich" "immich" "immich" "$IMMICH_CLIENT_SECRET" \
                   "https://photos.${domain}" \
-                  "https://photos.${domain}/auth/login"
+                  "https://photos.${domain}/auth/login" \
+                  "app.immich:///oauth-callback"
 
                 create_oidc_app "Vaultwarden" "vaultwarden" "vaultwarden" "$VAULTWARDEN_CLIENT_SECRET" \
                   "https://vault.${domain}" \

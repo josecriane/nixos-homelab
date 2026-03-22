@@ -68,6 +68,8 @@ in
               containers:
               - name: jellyfin
                 image: jellyfin/jellyfin:10.11.6
+                securityContext:
+                  privileged: true
                 ports:
                 - containerPort: 8096
                 resources:

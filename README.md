@@ -386,6 +386,26 @@ Backup runs on timers after all tiers: daily critical, weekly full, weekly clean
 
 See [docs/architecture.md](docs/architecture.md) for details.
 
+## Mobile Apps
+
+Install these to access your services from your phone. Tailscale is required for access outside your home network.
+
+| Service | iOS | Android |
+|---------|-----|---------|
+| VPN access | [Tailscale](https://apps.apple.com/app/tailscale/id1470499037) | [Tailscale](https://play.google.com/store/apps/details?id=com.tailscale.ipn) |
+| Password manager | [Bitwarden](https://apps.apple.com/app/bitwarden/id1137397744) | [Bitwarden](https://play.google.com/store/apps/details?id=com.x8bit.bitwarden) |
+| Media streaming | [Swiftfin](https://apps.apple.com/app/swiftfin/id1604098728) | [Findroid](https://play.google.com/store/apps/details?id=dev.jdtech.jellyfin) |
+| Media requests | Web (add to home screen) | Web (add to home screen) |
+| Photo backup | [Immich](https://apps.apple.com/app/immich/id1613945686) | [Immich](https://play.google.com/store/apps/details?id=app.alextran.immich) |
+| Cloud storage | [Nextcloud](https://apps.apple.com/app/nextcloud/id1125420102) | [Nextcloud](https://play.google.com/store/apps/details?id=com.nextcloud.client) |
+| File sync | [Möbius Sync](https://apps.apple.com/app/mobius-sync/id1539203216) | [Syncthing](https://play.google.com/store/apps/details?id=com.nutomic.syncthingandroid) |
+| Books / Manga | [Panels](https://apps.apple.com/app/panels-comic-reader/id1236567663) (OPDS) | [Librera Reader](https://play.google.com/store/apps/details?id=com.foobnix.pdf.reader) (OPDS) |
+| Media management | [Ruddarr](https://apps.apple.com/app/ruddarr/id6476240130) | [nzb360](https://play.google.com/store/apps/details?id=com.kevinforeman.nzb360) |
+| Monitoring | [Grafana](https://apps.apple.com/app/grafana-mobile/id1563348498) | [Grafana](https://play.google.com/store/apps/details?id=com.grafana.app) |
+| Offline wiki | [Kiwix](https://apps.apple.com/app/kiwix/id997079563) | [Kiwix](https://play.google.com/store/apps/details?id=org.kiwix.kiwixmobile) |
+
+Configure Bitwarden with your server URL (`https://vault.<subdomain>.<domain>`). For OPDS readers (Kavita), use `https://kavita.<subdomain>.<domain>/api/opds/<your-api-key>`. Jellyseerr works well as a PWA (open in browser, then "Add to Home Screen").
+
 ## Post-Install
 
 Some services need manual configuration after first deploy. See [docs/post-install.md](docs/post-install.md).

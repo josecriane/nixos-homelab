@@ -319,6 +319,29 @@ in
                   sleep 10
                 done
 
+                # Set language to "Spanish" on ES quality profiles so they accept
+                # Spanish releases (profile-level "Original" language would reject them)
+                echo "Setting language to 'Spanish' on ES quality profiles..."
+                for PROFILE_ID in $($KUBECTL exec -n ${ns} deploy/radarr-es -- \
+                    curl -s http://localhost:7878/api/v3/qualityprofile -H "X-Api-Key: $RADARR_ES_KEY" 2>/dev/null | $JQ '.[].id'); do
+                  $KUBECTL exec -n ${ns} deploy/radarr-es -- \
+                    curl -s "http://localhost:7878/api/v3/qualityprofile/$PROFILE_ID" -H "X-Api-Key: $RADARR_ES_KEY" 2>/dev/null | \
+                    $JQ '.language = {"id": 3, "name": "Spanish"}' | \
+                    $KUBECTL exec -i -n ${ns} deploy/radarr-es -- \
+                      curl -s -o /dev/null -X PUT "http://localhost:7878/api/v3/qualityprofile/$PROFILE_ID" \
+                        -H "X-Api-Key: $RADARR_ES_KEY" -H "Content-Type: application/json" -d @- 2>/dev/null
+                done
+                for PROFILE_ID in $($KUBECTL exec -n ${ns} deploy/sonarr-es -- \
+                    curl -s http://localhost:8989/api/v3/qualityprofile -H "X-Api-Key: $SONARR_ES_KEY" 2>/dev/null | $JQ '.[].id'); do
+                  $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
+                    curl -s "http://localhost:8989/api/v3/qualityprofile/$PROFILE_ID" -H "X-Api-Key: $SONARR_ES_KEY" 2>/dev/null | \
+                    $JQ '.language = {"id": 3, "name": "Spanish"}' | \
+                    $KUBECTL exec -i -n ${ns} deploy/sonarr-es -- \
+                      curl -s -o /dev/null -X PUT "http://localhost:8989/api/v3/qualityprofile/$PROFILE_ID" \
+                        -H "X-Api-Key: $SONARR_ES_KEY" -H "Content-Type: application/json" -d @- 2>/dev/null
+                done
+                echo "ES language profiles updated"
+
                 print_success "Recyclarr" \
                   "CronJob: every 12 hours" \
                   "Sonarr: WEB-1080p + Remux-1080p Anime quality profiles" \
