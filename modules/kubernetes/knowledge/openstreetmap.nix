@@ -115,7 +115,43 @@ in
                   done
                 fi
 
-                # Create MapLibre viewer ConfigMap
+                # Download base assets (fonts, sprites, base styles, JS libs) if not present
+                ASSETS_DIR="${if cloudHostPath != null then cloudHostPath else "/var/lib/openstreetmap"}"
+                if [ ! -f "$ASSETS_DIR/nomad-base-styles.json" ]; then
+                  echo "Downloading base map assets..."
+                  ASSETS_URL="https://github.com/Crosstalk-Solutions/project-nomad-maps/raw/refs/heads/master/base-assets.tar.gz"
+                  ${pkgs.aria2}/bin/aria2c -x 4 -d "$ASSETS_DIR" -o "base-assets.tar.gz" "$ASSETS_URL"
+                  PATH="${pkgs.gzip}/bin:$PATH" ${pkgs.gnutar}/bin/tar xzf "$ASSETS_DIR/base-assets.tar.gz" -C "$ASSETS_DIR" --strip-components=1 --no-same-owner
+                  rm -f "$ASSETS_DIR/base-assets.tar.gz"
+                  echo "Base assets downloaded"
+                else
+                  echo "Base assets already present"
+                fi
+
+                # Download JS libraries for fully offline operation
+                JS_DIR="$ASSETS_DIR/js"
+                mkdir -p "$JS_DIR"
+                if [ ! -f "$JS_DIR/maplibre-gl.js" ]; then
+                  echo "Downloading JS libraries..."
+                  $CURL -sL "https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.js" -o "$JS_DIR/maplibre-gl.js"
+                  $CURL -sL "https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.css" -o "$JS_DIR/maplibre-gl.css"
+                  $CURL -sL "https://unpkg.com/pmtiles@4.4.0/dist/pmtiles.js" -o "$JS_DIR/pmtiles.js"
+                  echo "JS libraries downloaded"
+                else
+                  echo "JS libraries already present"
+                fi
+
+                # Generate style.json from base styles, pointing to our PMTiles
+                HOST="$(hostname maps)"
+                cat "$ASSETS_DIR/nomad-base-styles.json" | \
+                  $JQ --arg host "https://$HOST" \
+                  '.sources.protomaps.url = "pmtiles://" + $host + "/data/world.pmtiles" |
+                   .sprite = $host + "/assets/sprites/v4/light" |
+                   .glyphs = $host + "/assets/fonts/{fontstack}/{range}.pbf"' \
+                  > "$ASSETS_DIR/style.json"
+                echo "Generated style.json"
+
+                # Create ConfigMap with viewer HTML and nginx config
                 cat <<'VIEWEREOF' | $KUBECTL apply -f -
         apiVersion: v1
         kind: ConfigMap
@@ -130,9 +166,9 @@ in
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1.0" />
               <title>Offline Maps</title>
-              <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.1.0/dist/maplibre-gl.css" />
-              <script src="https://unpkg.com/maplibre-gl@5.1.0/dist/maplibre-gl.js"></script>
-              <script src="https://unpkg.com/pmtiles@4.2.1/dist/pmtiles.js"></script>
+              <link rel="stylesheet" href="/js/maplibre-gl.css" />
+              <script src="/js/maplibre-gl.js"></script>
+              <script src="/js/pmtiles.js"></script>
               <style>
                 body { margin: 0; padding: 0; }
                 #map { position: absolute; top: 0; bottom: 0; width: 100%; }
@@ -144,24 +180,11 @@ in
                 const protocol = new pmtiles.Protocol();
                 maplibregl.addProtocol("pmtiles", protocol.tile);
 
-                const PMTILES_URL = "pmtiles://" + window.location.origin + "/tiles/world.pmtiles";
-
                 const map = new maplibregl.Map({
                   container: "map",
                   zoom: 3,
                   center: [0, 30],
-                  style: {
-                    version: 8,
-                    glyphs: "https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf",
-                    sources: {
-                      protomaps: {
-                        type: "vector",
-                        url: PMTILES_URL,
-                        attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
-                      }
-                    },
-                    layers: protomapsL.default("protomaps", "light")
-                  }
+                  style: window.location.origin + "/style.json"
                 });
 
                 map.addControl(new maplibregl.NavigationControl());
@@ -169,24 +192,6 @@ in
                   positionOptions: { enableHighAccuracy: true },
                   trackUserLocation: true
                 }));
-              </script>
-              <script src="https://unpkg.com/protomaps-themes-base@latest/dist/index.js"></script>
-              <script>
-                // Re-apply style with protomaps theme once loaded
-                if (typeof protomapsL !== "undefined") {
-                  map.setStyle({
-                    version: 8,
-                    glyphs: "https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf",
-                    sources: {
-                      protomaps: {
-                        type: "vector",
-                        url: PMTILES_URL,
-                        attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
-                      }
-                    },
-                    layers: protomapsL.default("protomaps", "light")
-                  });
-                }
               </script>
             </body>
             </html>
@@ -197,19 +202,34 @@ in
               location / {
                 root /usr/share/nginx/html;
                 index index.html;
+                add_header Access-Control-Allow-Origin *;
               }
 
-              location /tiles/ {
-                proxy_pass http://localhost:8081/;
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_buffering off;
+              location /style.json {
+                alias /data/style.json;
+                add_header Access-Control-Allow-Origin *;
+              }
+
+              location /data/ {
+                alias /data/;
+                add_header Access-Control-Allow-Origin *;
+                add_header Accept-Ranges bytes;
+              }
+
+              location /assets/ {
+                alias /data/basemaps-assets/;
+                add_header Access-Control-Allow-Origin *;
+              }
+
+              location /js/ {
+                alias /data/js/;
+                add_header Access-Control-Allow-Origin *;
               }
             }
         VIEWEREOF
                 echo "MapLibre viewer ConfigMap created"
 
-                # Deploy go-pmtiles + nginx viewer
+                # Deploy single nginx container
                 cat <<'EOF' | $KUBECTL apply -f -
         apiVersion: apps/v1
         kind: Deployment
@@ -227,21 +247,7 @@ in
                 app: openstreetmap
             spec:
               containers:
-              - name: tiles
-                image: protomaps/go-pmtiles:v1.22.3
-                args: ["serve", "/data", "--port=8081", "--cors=*"]
-                ports:
-                - containerPort: 8081
-                resources:
-                  requests:
-                    cpu: 50m
-                    memory: 128Mi
-                  limits:
-                    memory: 512Mi
-                volumeMounts:
-                - name: data
-                  mountPath: /data
-              - name: viewer
+              - name: nginx
                 image: nginx:alpine
                 ports:
                 - containerPort: 8080
@@ -250,8 +256,11 @@ in
                     cpu: 10m
                     memory: 32Mi
                   limits:
-                    memory: 64Mi
+                    memory: 128Mi
                 volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
                 - name: viewer-html
                   mountPath: /usr/share/nginx/html/index.html
                   subPath: index.html

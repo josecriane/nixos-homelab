@@ -1,4 +1,4 @@
-# Homer - Lightweight dashboard with health checks
+# Homer - Lightweight dashboard
 # Replaces Homarr (~559MB) with a static dashboard (~10-20MB)
 {
   config,
@@ -17,7 +17,7 @@ let
   enabled = name: svc.${name} or false;
   h = k8s.hostname;
 
-  # Build service items conditionally
+  # Build a YAML item (2 extra spaces indent for nesting under items:)
   mkItem =
     {
       name,
@@ -25,17 +25,26 @@ let
       subtitle,
       url,
       tag ? null,
+      type ? null,
     }:
-    ''
-      - name: "${name}"
-        icon: "${icon}"
-        subtitle: "${subtitle}"
-        url: "${url}"
-        type: "Ping"
-        ${if tag != null then ''tag: "${tag}"'' else ""}
-    '';
+    "      - name: \"${name}\"\n        icon: \"${icon}\"\n        subtitle: \"${subtitle}\"\n        url: \"${url}\"\n        target: \"_blank\""
+    + lib.optionalString (tag != null) "\n        tag: \"${tag}\""
+    + lib.optionalString (type != null) "\n        type: \"${type}\"";
 
-  cloudItems = lib.concatStrings (
+  # Join items with newlines
+  joinItems = items: lib.concatStringsSep "\n" (lib.filter (x: x != "") items);
+
+  # Build a group section
+  mkGroup =
+    name: icon: items:
+    let
+      activeItems = lib.filter (x: x != "") items;
+    in
+    lib.optionalString (activeItems != [ ]) (
+      "  - name: \"${name}\"\n    icon: \"${icon}\"\n    items:\n" + joinItems activeItems
+    );
+
+  cloudGroup = mkGroup "Cloud" "fas fa-cloud" (
     lib.optional (enabled "vaultwarden") (mkItem {
       name = "Vaultwarden";
       icon = "fas fa-key";
@@ -62,7 +71,7 @@ let
     })
   );
 
-  mediaItems = lib.concatStrings (
+  mediaGroup = mkGroup "Media" "fas fa-play-circle" (
     lib.optionals (enabled "media") [
       (mkItem {
         name = "Jellyfin";
@@ -85,7 +94,7 @@ let
     ]
   );
 
-  downloadsItems = lib.concatStrings (
+  downloadsGroup = mkGroup "Downloads & Management" "fas fa-tasks" (
     lib.optionals (enabled "media") [
       (mkItem {
         name = "Sonarr";
@@ -146,22 +155,24 @@ let
     ]
   );
 
-  knowledgeItems = lib.concatStrings (
+  knowledgeGroup = mkGroup "Knowledge" "fas fa-brain" (
     lib.optional (enabled "kiwix") (mkItem {
       name = "Kiwix";
-      icon = "fas fa-wikipedia-w";
+      icon = "fab fa-wikipedia-w";
       subtitle = "Offline Knowledge";
       url = "https://${h "wiki"}";
+      type = "Ping";
     })
     ++ lib.optional (enabled "openstreetmap") (mkItem {
       name = "OpenStreetMap";
       icon = "fas fa-map-marked-alt";
       subtitle = "Offline Maps";
       url = "https://${h "maps"}";
+      type = "Ping";
     })
   );
 
-  monitoringItems = lib.concatStrings (
+  monitoringGroup = mkGroup "Monitoring" "fas fa-chart-line" (
     lib.optionals (enabled "monitoring") [
       (mkItem {
         name = "Grafana";
@@ -184,79 +195,80 @@ let
     ]
   );
 
-  infraItems = lib.concatStrings [
-    (mkItem {
-      name = "Traefik";
-      icon = "fas fa-route";
-      subtitle = "Ingress Controller";
-      url = "https://${h "traefik"}";
-    })
-    (lib.optionalString (enabled "authentik") (mkItem {
+  infraGroup = mkGroup "Infrastructure" "fas fa-server" (
+    [
+      (mkItem {
+        name = "Traefik";
+        icon = "fas fa-route";
+        subtitle = "Ingress Controller";
+        url = "https://${h "traefik"}";
+      })
+    ]
+    ++ lib.optional (enabled "authentik") (mkItem {
       name = "Authentik";
       icon = "fas fa-shield-alt";
       subtitle = "SSO/Identity";
       url = "https://${h "auth"}";
-    }))
-  ];
+    })
+  );
 
-  # Build groups (only include non-empty groups)
-  mkGroup =
-    name: icon: items:
-    lib.optionalString (items != "") ''
-          - name: "${name}"
-            icon: "${icon}"
-            items:
-      ${items}
-    '';
+  allGroups = lib.concatStringsSep "\n" (
+    lib.filter (x: x != "") [
+      cloudGroup
+      mediaGroup
+      downloadsGroup
+      knowledgeGroup
+      monitoringGroup
+      infraGroup
+    ]
+  );
 
-  allGroups = lib.concatStrings [
-    (mkGroup "Cloud" "fas fa-cloud" cloudItems)
-    (mkGroup "Media" "fas fa-play-circle" mediaItems)
-    (mkGroup "Downloads & Management" "fas fa-tasks" downloadsItems)
-    (mkGroup "Knowledge" "fas fa-brain" knowledgeItems)
-    (mkGroup "Monitoring" "fas fa-chart-line" monitoringItems)
-    (mkGroup "Infrastructure" "fas fa-server" infraItems)
-  ];
+  homerConfigYaml = pkgs.writeText "homer-config.yml" ''
+    ---
+    title: "Homelab"
+    subtitle: "${serverConfig.domain}"
+    logo: false
 
-  homerConfig = ''
-      title: "Homelab"
-      subtitle: "${serverConfig.domain}"
-      logo: false
+    header: true
+    footer: false
 
-      header: true
-      footer: false
-      connectivityCheck: true
+    theme: default
 
-      theme: default
-      colors:
-        light:
-          highlight-primary: "#3367d6"
-          highlight-secondary: "#4285f4"
-          highlight-hover: "#5a95f5"
-          background: "#f5f5f5"
-          card-background: "#ffffff"
-          text: "#363636"
-          text-header: "#ffffff"
-          text-title: "#303030"
-          text-subtitle: "#424242"
-          card-shadow: rgba(0, 0, 0, 0.1)
-          link: "#3273dc"
-          link-hover: "#363636"
-        dark:
-          highlight-primary: "#3367d6"
-          highlight-secondary: "#4285f4"
-          highlight-hover: "#5a95f5"
-          background: "#131313"
-          card-background: "#1e1e1e"
-          text: "#eaeaea"
-          text-header: "#ffffff"
-          text-title: "#fafafa"
-          text-subtitle: "#f5f5f5"
-          card-shadow: rgba(0, 0, 0, 0.4)
-          link: "#3273dc"
-          link-hover: "#ffdd57"
+    columns: "3"
 
-      services:
+    defaults:
+      layout: list
+      colorTheme: auto
+
+    colors:
+      light:
+        highlight-primary: "#3367d6"
+        highlight-secondary: "#4285f4"
+        highlight-hover: "#5a95f5"
+        background: "#f5f5f5"
+        card-background: "#ffffff"
+        text: "#363636"
+        text-header: "#ffffff"
+        text-title: "#303030"
+        text-subtitle: "#424242"
+        card-shadow: rgba(0, 0, 0, 0.1)
+        link: "#3273dc"
+        link-hover: "#363636"
+      dark:
+        highlight-primary: "#3367d6"
+        highlight-secondary: "#4285f4"
+        highlight-hover: "#5a95f5"
+        background: "#131313"
+        card-background: "#2b2b2b"
+        text: "#eaeaea"
+        text-header: "#ffffff"
+        text-title: "#fafafa"
+        text-subtitle: "#f5f5f5"
+        card-shadow: rgba(0, 0, 0, 0.4)
+        link: "#3273dc"
+        link-hover: "#ffdd57"
+
+    services:
     ${allGroups}
   '';
 in
@@ -280,9 +292,9 @@ in
                 wait_for_certificate
                 setup_namespace "${ns}"
 
-                # Create ConfigMap with Homer config
+                # Create ConfigMap from pre-built YAML
                 $KUBECTL create configmap homer-config -n ${ns} \
-                  --from-literal=config.yml=${lib.escapeShellArg homerConfig} \
+                  --from-file=config.yml=${homerConfigYaml} \
                   --dry-run=client -o yaml | $KUBECTL apply -f -
                 echo "Homer config created"
 
