@@ -15,6 +15,7 @@
     allowedTCPPorts = [
       80 # HTTP  - Traefik
       443 # HTTPS - Traefik
+      6881 # BitTorrent - qBittorrent
       8088 # Omada Controller HTTP
       8043 # Omada Controller HTTPS
       8843 # Omada Controller portal HTTPS
@@ -28,6 +29,7 @@
     ];
 
     allowedUDPPorts = [
+      6881 # BitTorrent - qBittorrent
       29810 # Omada Controller discovery
       27001 # Omada Controller app discovery
     ];

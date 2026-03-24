@@ -74,5 +74,8 @@ in
   ]
   ++ lib.optionals (enabled "kiwix") [
     ./knowledge/kiwix.nix
+  ]
+  ++ lib.optionals (enabled "openstreetmap") [
+    ./knowledge/openstreetmap.nix
   ];
 }

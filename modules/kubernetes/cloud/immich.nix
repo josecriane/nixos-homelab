@@ -76,7 +76,10 @@ in
                                   for dir in encoded-video library profile thumbs upload backups; do
                                     touch "${cloudHostPath}/$dir/.immich" 2>/dev/null || true
                                   done
-                                  chmod -R 777 "${cloudHostPath}" 2>/dev/null || true
+                                  chmod 777 "${cloudHostPath}" 2>/dev/null || true
+                                  for dir in encoded-video library profile thumbs upload backups; do
+                                    chmod 777 "${cloudHostPath}/$dir" 2>/dev/null || true
+                                  done
                                   cat <<PVFALLBACKEOF | $KUBECTL apply -f -
                         apiVersion: v1
                         kind: PersistentVolume
@@ -150,7 +153,10 @@ in
                     mkdir -p "$IMMICH_UPLOAD/$dir" 2>/dev/null || true
                     [ ! -f "$IMMICH_UPLOAD/$dir/.immich" ] && touch "$IMMICH_UPLOAD/$dir/.immich" 2>/dev/null || true
                   done
-                  chmod -R 777 "$IMMICH_UPLOAD" 2>/dev/null || true
+                  chmod 777 "$IMMICH_UPLOAD" 2>/dev/null || true
+                  for dir in encoded-video library profile thumbs upload backups; do
+                    chmod 777 "$IMMICH_UPLOAD/$dir" 2>/dev/null || true
+                  done
                   echo "Immich upload directories prepared"
                 fi
 
@@ -318,7 +324,7 @@ in
                     cpu: 100m
                     memory: 256Mi
                   limits:
-                    memory: 1536Mi
+                    memory: 3Gi
                 volumeMounts:
                 - name: library
                   mountPath: /usr/src/app/upload

@@ -32,6 +32,7 @@
     syncthing = false;
     dashboard = true;
     kiwix = false;
+    openstreetmap = false;
   };
 
   authentik = {
@@ -71,6 +72,7 @@
     #     nextcloud = "cloud/nextcloud";
     #     immich = "cloud/immich";
     #     kiwix = "kiwix";
+    #     openstreetmap = "maps";
     #   };
     #   cockpitPort = 9090;
     #   fileBrowserPort = 8080;

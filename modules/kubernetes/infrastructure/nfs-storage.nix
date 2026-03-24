@@ -197,8 +197,11 @@ in
                 mkdir -p "$HOST_DATA_PATH/media/music"
                 mkdir -p "$HOST_DATA_PATH/media/books"
                 mkdir -p "$HOST_DATA_PATH/backups"
-                # Set 777 on directories only (recursive chmod on files is too slow over NFS)
-                find "$HOST_DATA_PATH/torrents" "$HOST_DATA_PATH/media" -type d -exec chmod 775 {} + 2>/dev/null || true
+                # Set permissions on top-level directories only (recursive ops are too slow over NFS)
+                chmod 775 "$HOST_DATA_PATH/torrents" "$HOST_DATA_PATH/media" 2>/dev/null || true
+                for d in "$HOST_DATA_PATH"/torrents/* "$HOST_DATA_PATH"/media/*; do
+                  [ -d "$d" ] && chmod 775 "$d" 2>/dev/null || true
+                done
                 echo "Directory structure created at $HOST_DATA_PATH"
 
                 # Create PV + PVC if not already Bound
@@ -275,10 +278,10 @@ in
                       ''
                                 # Cloud PV: ${service} -> ${hostPath}
                                 mkdir -p "${hostPath}" 2>/dev/null || true
-                                chmod -R 777 "${hostPath}" 2>/dev/null || true
+                                chmod 777 "${hostPath}" 2>/dev/null || true
                                 # Nextcloud runs as www-data (uid 33)
                                 if [ "${service}" = "nextcloud" ]; then
-                                  chown -R 33:33 "${hostPath}" 2>/dev/null || true
+                                  chown 33:33 "${hostPath}" 2>/dev/null || true
                                 fi
                                 EXISTING_PV=$($KUBECTL get pv ${pvName} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
                                 if [ "$EXISTING_PV" = "Bound" ] || [ "$EXISTING_PV" = "Available" ]; then
