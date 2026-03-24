@@ -1,0 +1,350 @@
+# Homer - Lightweight dashboard with health checks
+# Replaces Homarr (~559MB) with a static dashboard (~10-20MB)
+{
+  config,
+  lib,
+  pkgs,
+  serverConfig,
+  ...
+}:
+
+let
+  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  ns = "homer";
+  markerFile = "/var/lib/homer-setup-done";
+
+  svc = serverConfig.services or { };
+  enabled = name: svc.${name} or false;
+  h = k8s.hostname;
+
+  # Build service items conditionally
+  mkItem =
+    {
+      name,
+      icon,
+      subtitle,
+      url,
+      tag ? null,
+    }:
+    ''
+      - name: "${name}"
+        icon: "${icon}"
+        subtitle: "${subtitle}"
+        url: "${url}"
+        type: "Ping"
+        ${if tag != null then ''tag: "${tag}"'' else ""}
+    '';
+
+  cloudItems = lib.concatStrings (
+    lib.optional (enabled "vaultwarden") (mkItem {
+      name = "Vaultwarden";
+      icon = "fas fa-key";
+      subtitle = "Password Manager";
+      url = "https://${h "vault"}";
+    })
+    ++ lib.optional (enabled "nextcloud") (mkItem {
+      name = "Nextcloud";
+      icon = "fas fa-cloud";
+      subtitle = "Cloud Storage";
+      url = "https://${h "cloud"}";
+    })
+    ++ lib.optional (enabled "immich") (mkItem {
+      name = "Immich";
+      icon = "fas fa-images";
+      subtitle = "Photo Backup";
+      url = "https://${h "photos"}";
+    })
+    ++ lib.optional (enabled "syncthing") (mkItem {
+      name = "Syncthing";
+      icon = "fas fa-sync";
+      subtitle = "File Sync";
+      url = "https://${h "sync"}";
+    })
+  );
+
+  mediaItems = lib.concatStrings (
+    lib.optionals (enabled "media") [
+      (mkItem {
+        name = "Jellyfin";
+        icon = "fas fa-film";
+        subtitle = "Media Server";
+        url = "https://${h "jellyfin"}";
+      })
+      (mkItem {
+        name = "Jellyseerr";
+        icon = "fas fa-search";
+        subtitle = "Media Requests";
+        url = "https://${h "requests"}";
+      })
+      (mkItem {
+        name = "Kavita";
+        icon = "fas fa-book-reader";
+        subtitle = "Manga/Comics";
+        url = "https://${h "kavita"}";
+      })
+    ]
+  );
+
+  downloadsItems = lib.concatStrings (
+    lib.optionals (enabled "media") [
+      (mkItem {
+        name = "Sonarr";
+        icon = "fas fa-tv";
+        subtitle = "TV Shows";
+        url = "https://${h "sonarr"}";
+      })
+      (mkItem {
+        name = "Sonarr ES";
+        icon = "fas fa-tv";
+        subtitle = "Series (ES)";
+        url = "https://${h "sonarr-es"}";
+        tag = "ES";
+      })
+      (mkItem {
+        name = "Radarr";
+        icon = "fas fa-video";
+        subtitle = "Movies";
+        url = "https://${h "radarr"}";
+      })
+      (mkItem {
+        name = "Radarr ES";
+        icon = "fas fa-video";
+        subtitle = "Movies (ES)";
+        url = "https://${h "radarr-es"}";
+        tag = "ES";
+      })
+      (mkItem {
+        name = "Lidarr";
+        icon = "fas fa-music";
+        subtitle = "Music";
+        url = "https://${h "lidarr"}";
+      })
+      (mkItem {
+        name = "Bazarr";
+        icon = "fas fa-closed-captioning";
+        subtitle = "Subtitles";
+        url = "https://${h "bazarr"}";
+      })
+      (mkItem {
+        name = "Prowlarr";
+        icon = "fas fa-search-plus";
+        subtitle = "Indexers";
+        url = "https://${h "prowlarr"}";
+      })
+      (mkItem {
+        name = "qBittorrent";
+        icon = "fas fa-download";
+        subtitle = "Downloads";
+        url = "https://${h "qbit"}";
+      })
+      (mkItem {
+        name = "Bookshelf";
+        icon = "fas fa-book";
+        subtitle = "Ebooks";
+        url = "https://${h "books"}";
+      })
+    ]
+  );
+
+  knowledgeItems = lib.concatStrings (
+    lib.optional (enabled "kiwix") (mkItem {
+      name = "Kiwix";
+      icon = "fas fa-wikipedia-w";
+      subtitle = "Offline Knowledge";
+      url = "https://${h "wiki"}";
+    })
+    ++ lib.optional (enabled "openstreetmap") (mkItem {
+      name = "OpenStreetMap";
+      icon = "fas fa-map-marked-alt";
+      subtitle = "Offline Maps";
+      url = "https://${h "maps"}";
+    })
+  );
+
+  monitoringItems = lib.concatStrings (
+    lib.optionals (enabled "monitoring") [
+      (mkItem {
+        name = "Grafana";
+        icon = "fas fa-chart-area";
+        subtitle = "Dashboards";
+        url = "https://${h "grafana"}";
+      })
+      (mkItem {
+        name = "Prometheus";
+        icon = "fas fa-database";
+        subtitle = "Metrics";
+        url = "https://${h "prometheus"}";
+      })
+      (mkItem {
+        name = "Alertmanager";
+        icon = "fas fa-bell";
+        subtitle = "Alerts";
+        url = "https://${h "alertmanager"}";
+      })
+    ]
+  );
+
+  infraItems = lib.concatStrings [
+    (mkItem {
+      name = "Traefik";
+      icon = "fas fa-route";
+      subtitle = "Ingress Controller";
+      url = "https://${h "traefik"}";
+    })
+    (lib.optionalString (enabled "authentik") (mkItem {
+      name = "Authentik";
+      icon = "fas fa-shield-alt";
+      subtitle = "SSO/Identity";
+      url = "https://${h "auth"}";
+    }))
+  ];
+
+  # Build groups (only include non-empty groups)
+  mkGroup =
+    name: icon: items:
+    lib.optionalString (items != "") ''
+          - name: "${name}"
+            icon: "${icon}"
+            items:
+      ${items}
+    '';
+
+  allGroups = lib.concatStrings [
+    (mkGroup "Cloud" "fas fa-cloud" cloudItems)
+    (mkGroup "Media" "fas fa-play-circle" mediaItems)
+    (mkGroup "Downloads & Management" "fas fa-tasks" downloadsItems)
+    (mkGroup "Knowledge" "fas fa-brain" knowledgeItems)
+    (mkGroup "Monitoring" "fas fa-chart-line" monitoringItems)
+    (mkGroup "Infrastructure" "fas fa-server" infraItems)
+  ];
+
+  homerConfig = ''
+      title: "Homelab"
+      subtitle: "${serverConfig.domain}"
+      logo: false
+
+      header: true
+      footer: false
+      connectivityCheck: true
+
+      theme: default
+      colors:
+        light:
+          highlight-primary: "#3367d6"
+          highlight-secondary: "#4285f4"
+          highlight-hover: "#5a95f5"
+          background: "#f5f5f5"
+          card-background: "#ffffff"
+          text: "#363636"
+          text-header: "#ffffff"
+          text-title: "#303030"
+          text-subtitle: "#424242"
+          card-shadow: rgba(0, 0, 0, 0.1)
+          link: "#3273dc"
+          link-hover: "#363636"
+        dark:
+          highlight-primary: "#3367d6"
+          highlight-secondary: "#4285f4"
+          highlight-hover: "#5a95f5"
+          background: "#131313"
+          card-background: "#1e1e1e"
+          text: "#eaeaea"
+          text-header: "#ffffff"
+          text-title: "#fafafa"
+          text-subtitle: "#f5f5f5"
+          card-shadow: rgba(0, 0, 0, 0.4)
+          link: "#3273dc"
+          link-hover: "#ffdd57"
+
+      services:
+    ${allGroups}
+  '';
+in
+{
+  systemd.services.homer-setup = {
+    description = "Setup Homer dashboard";
+    after = [ "k3s-storage.target" ];
+    requires = [ "k3s-storage.target" ];
+    wantedBy = [ "k3s-core.target" ];
+    before = [ "k3s-core.target" ];
+
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "homer-setup" ''
+                ${k8s.libShSource}
+                setup_preamble "${markerFile}" "Homer"
+
+                wait_for_k3s
+                wait_for_traefik
+                wait_for_certificate
+                setup_namespace "${ns}"
+
+                # Create ConfigMap with Homer config
+                $KUBECTL create configmap homer-config -n ${ns} \
+                  --from-literal=config.yml=${lib.escapeShellArg homerConfig} \
+                  --dry-run=client -o yaml | $KUBECTL apply -f -
+                echo "Homer config created"
+
+                # Deploy Homer
+                cat <<'EOF' | $KUBECTL apply -f -
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: homer
+          namespace: ${ns}
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: homer
+          template:
+            metadata:
+              labels:
+                app: homer
+            spec:
+              containers:
+              - name: homer
+                image: b4bz/homer:v24.11.3
+                ports:
+                - containerPort: 8080
+                resources:
+                  requests:
+                    cpu: 10m
+                    memory: 16Mi
+                  limits:
+                    memory: 64Mi
+                volumeMounts:
+                - name: config
+                  mountPath: /www/assets/config.yml
+                  subPath: config.yml
+              volumes:
+              - name: config
+                configMap:
+                  name: homer-config
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: homer
+          namespace: ${ns}
+        spec:
+          selector:
+            app: homer
+          ports:
+          - port: 8080
+            targetPort: 8080
+        EOF
+
+                wait_for_deployment "${ns}" "homer" 120
+
+                create_ingress_route "homer" "${ns}" "$(hostname home)" "homer" "8080"
+
+                print_success "Homer" \
+                  "URL: https://$(hostname home)"
+
+                create_marker "${markerFile}"
+      '';
+    };
+  };
+}

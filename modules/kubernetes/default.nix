@@ -70,7 +70,7 @@ in
     ./monitoring/loki.nix
   ]
   ++ lib.optionals (enabled "dashboard") [
-    ./dashboard/homarr.nix
+    ./dashboard/homer.nix
   ]
   ++ lib.optionals (enabled "kiwix") [
     ./knowledge/kiwix.nix
