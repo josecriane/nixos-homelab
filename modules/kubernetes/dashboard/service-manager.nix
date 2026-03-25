@@ -44,6 +44,27 @@ let
 
   servicesJson = builtins.toJSON serviceManagerConfig;
 
+  # Map config.nix service names to K8s namespaces for scale-down
+  serviceNamespaces = {
+    authentik = [ "authentik" ];
+    media = [ "media" ];
+    immich = [ "immich" ];
+    syncthing = [ "syncthing" ];
+    monitoring = [ "monitoring" ];
+    vaultwarden = [ "vaultwarden" ];
+    nextcloud = [ "nextcloud" ];
+    kiwix = [ "kiwix" ];
+    openstreetmap = [ "openstreetmap" ];
+  };
+
+  # Namespaces that should be scaled to 0 (service disabled in config)
+  disabledNamespaces = lib.concatLists (
+    lib.mapAttrsToList (
+      name: namespaces:
+      if enabled name then [ ] else namespaces
+    ) serviceNamespaces
+  );
+
   # Build Go binary
   serviceManagerBin = pkgs.buildGoModule {
     pname = "service-manager";
@@ -66,7 +87,8 @@ let
   };
 in
 {
-  systemd.services.service-manager-setup = {
+  systemd.services = {
+    service-manager-setup = {
     description = "Setup Service Manager";
     after = [ "k3s-storage.target" ];
     requires = [ "k3s-storage.target" ];
@@ -198,6 +220,32 @@ in
 
                 create_marker "${markerFile}"
       '';
+    };
+  };
+  } // lib.optionalAttrs (disabledNamespaces != [ ]) {
+    service-scaledown = {
+      description = "Scale down disabled services";
+      after = [ "k3s-extras.target" ];
+      requires = [ "k3s-extras.target" ];
+      wantedBy = [ "multi-user.target" ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "service-scaledown" ''
+                  ${k8s.libShSource}
+                  export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+                  echo "Scaling down disabled services..."
+                  ${lib.concatMapStringsSep "\n" (namespace: ''
+                    echo "Scaling down namespace: ${namespace}"
+                    for deploy in $($KUBECTL get deployments -n ${namespace} -o name 2>/dev/null); do
+                      $KUBECTL scale "$deploy" --replicas=0 -n ${namespace} 2>/dev/null || true
+                    done
+                  '') disabledNamespaces}
+                  echo "Scale-down complete"
+        '';
+      };
     };
   };
 }

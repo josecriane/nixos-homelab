@@ -23,18 +23,12 @@ in
     ./infrastructure/nfs-storage.nix
     ./infrastructure/cleanup.nix
     ./backup/restic.nix
-  ]
-  ++ lib.optionals (enabled "authentik") [
+
+    # Auth
     ./auth/authentik.nix
     ./auth/sso.nix
-  ]
-  ++ lib.optionals ((enabled "authentik") && (serverConfig.authentik.ldap.enable or false)) [
-    ./auth/ldap.nix
-  ]
-  ++ lib.optionals ((enabled "authentik") && anyNas) [
-    ./auth/nas-apps.nix
-  ]
-  ++ lib.optionals (enabled "media") [
+
+    # Media
     ./media/arr-stack.nix
     ./media/arr-secrets.nix
     ./media/arr-credentials.nix
@@ -53,30 +47,35 @@ in
     ./media/flaresolverr.nix
     ./media/recyclarr.nix
     ./media/kavita.nix
-  ]
-  ++ lib.optionals ((enabled "media") && anyNas) [
-    ./media/nas-integration.nix
-  ]
-  ++ lib.optionals (enabled "vaultwarden") [
+
+    # Cloud
     ./cloud/vaultwarden.nix
     ./cloud/vaultwarden-admin.nix
     ./cloud/vaultwarden-sync.nix
-  ]
-  ++ lib.optionals (enabled "nextcloud") [ ./cloud/nextcloud.nix ]
-  ++ lib.optionals (enabled "immich") [ ./cloud/immich.nix ]
-  ++ lib.optionals (enabled "syncthing") [ ./cloud/syncthing.nix ]
-  ++ lib.optionals (enabled "monitoring") [
+    ./cloud/nextcloud.nix
+    ./cloud/immich.nix
+    ./cloud/syncthing.nix
+
+    # Monitoring
     ./monitoring/grafana-prometheus.nix
     ./monitoring/loki.nix
-  ]
-  ++ lib.optionals (enabled "dashboard") [
+
+    # Dashboard
     ./dashboard/homer.nix
     ./dashboard/service-manager.nix
-  ]
-  ++ lib.optionals (enabled "kiwix") [
+
+    # Knowledge
     ./knowledge/kiwix.nix
-  ]
-  ++ lib.optionals (enabled "openstreetmap") [
     ./knowledge/openstreetmap.nix
+  ]
+  # Hardware/config-dependent modules stay conditional
+  ++ lib.optionals ((enabled "authentik") && (serverConfig.authentik.ldap.enable or false)) [
+    ./auth/ldap.nix
+  ]
+  ++ lib.optionals ((enabled "authentik") && anyNas) [
+    ./auth/nas-apps.nix
+  ]
+  ++ lib.optionals ((enabled "media") && anyNas) [
+    ./media/nas-integration.nix
   ];
 }
