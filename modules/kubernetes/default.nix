@@ -71,6 +71,7 @@ in
   ]
   ++ lib.optionals (enabled "dashboard") [
     ./dashboard/homer.nix
+    ./dashboard/service-manager.nix
   ]
   ++ lib.optionals (enabled "kiwix") [
     ./knowledge/kiwix.nix

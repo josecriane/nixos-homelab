@@ -18,6 +18,9 @@ let
   h = k8s.hostname;
 
   # Build a YAML item (2 extra spaces indent for nesting under items:)
+  serviceManagerUrl = "https://${h "services"}";
+  pingUrl = ns: name: "${serviceManagerUrl}/api/ping/${ns}/${name}";
+
   mkItem =
     {
       name,
@@ -26,10 +29,12 @@ let
       url,
       tag ? null,
       type ? null,
+      apiurl ? null,
     }:
     "      - name: \"${name}\"\n        icon: \"${icon}\"\n        subtitle: \"${subtitle}\"\n        url: \"${url}\"\n        target: \"_blank\""
     + lib.optionalString (tag != null) "\n        tag: \"${tag}\""
-    + lib.optionalString (type != null) "\n        type: \"${type}\"";
+    + lib.optionalString (type != null) "\n        type: \"${type}\""
+    + lib.optionalString (apiurl != null) "\n        apiurl: \"${apiurl}\"";
 
   # Join items with newlines
   joinItems = items: lib.concatStringsSep "\n" (lib.filter (x: x != "") items);
@@ -152,6 +157,12 @@ let
         subtitle = "Ebooks";
         url = "https://${h "books"}";
       })
+      (mkItem {
+        name = "Kitsunarr";
+        icon = "fas fa-paw";
+        subtitle = "Anime Management";
+        url = "https://${h "kitsunarr"}";
+      })
     ]
   );
 
@@ -162,6 +173,7 @@ let
       subtitle = "Offline Knowledge";
       url = "https://${h "wiki"}";
       type = "Ping";
+      apiurl = pingUrl "kiwix" "kiwix-serve";
     })
     ++ lib.optional (enabled "openstreetmap") (mkItem {
       name = "OpenStreetMap";
@@ -169,6 +181,7 @@ let
       subtitle = "Offline Maps";
       url = "https://${h "maps"}";
       type = "Ping";
+      apiurl = pingUrl "openstreetmap" "openstreetmap";
     })
   );
 
@@ -179,18 +192,24 @@ let
         icon = "fas fa-chart-area";
         subtitle = "Dashboards";
         url = "https://${h "grafana"}";
+        type = "Ping";
+        apiurl = pingUrl "monitoring" "grafana";
       })
       (mkItem {
         name = "Prometheus";
         icon = "fas fa-database";
         subtitle = "Metrics";
         url = "https://${h "prometheus"}";
+        type = "Ping";
+        apiurl = pingUrl "monitoring" "prometheus-server";
       })
       (mkItem {
         name = "Alertmanager";
         icon = "fas fa-bell";
         subtitle = "Alerts";
         url = "https://${h "alertmanager"}";
+        type = "Ping";
+        apiurl = pingUrl "monitoring" "alertmanager";
       })
     ]
   );
@@ -210,6 +229,20 @@ let
       subtitle = "SSO/Identity";
       url = "https://${h "auth"}";
     })
+    ++ lib.optional (enabled "dashboard") (mkItem {
+      name = "Service Manager";
+      icon = "fas fa-power-off";
+      subtitle = "Start/Stop Services";
+      url = "https://${h "services"}";
+    })
+    ++ [
+      (mkItem {
+        name = "Omada Controller";
+        icon = "fas fa-wifi";
+        subtitle = "Network Management";
+        url = "https://${h "omada"}";
+      })
+    ]
   );
 
   allGroups = lib.concatStringsSep "\n" (

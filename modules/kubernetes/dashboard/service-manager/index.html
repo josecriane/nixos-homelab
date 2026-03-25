@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Service Manager</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #131313; color: #eaeaea; padding: 20px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .header { margin-bottom: 24px; }
+  .ram-bar { background: #2b2b2b; border-radius: 6px; height: 28px; margin-top: 10px; position: relative; overflow: hidden; }
+  .ram-bar-fill { height: 100%; border-radius: 6px; transition: width 0.5s; }
+  .ram-bar-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 0.85rem; font-weight: 600; }
+  .group { background: #1e1e1e; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .group-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: pointer; user-select: none; }
+  .group-header:hover { background: #252525; }
+  .group-title { font-size: 1rem; font-weight: 600; }
+  .group-actions { display: flex; gap: 8px; align-items: center; }
+  .group-actions button { padding: 4px 12px; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-weight: 600; }
+  .btn-start { background: #2ea043; color: #fff; }
+  .btn-start:hover { background: #3fb950; }
+  .btn-stop { background: #da3633; color: #fff; }
+  .btn-stop:hover { background: #f85149; }
+  .btn-start:disabled, .btn-stop:disabled { opacity: 0.5; cursor: not-allowed; }
+  .chevron { transition: transform 0.2s; font-size: 0.8rem; margin-right: 12px; color: #888; }
+  .chevron.collapsed { transform: rotate(-90deg); }
+  .group-body { padding: 0 16px 8px; }
+  .group-body.collapsed { display: none; }
+  .svc { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2b2b2b; }
+  .svc:last-child { border-bottom: none; }
+  .svc-info { display: flex; align-items: center; gap: 10px; }
+  .svc-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot-running { background: #2ea043; }
+  .dot-stopped { background: #da3633; }
+  .dot-pending { background: #d29922; }
+  .svc-name { font-size: 0.9rem; }
+  .svc-ram { color: #888; font-size: 0.8rem; margin-left: 4px; }
+  .svc-right { display: flex; align-items: center; gap: 8px; }
+  .toggle { position: relative; width: 40px; height: 22px; cursor: pointer; }
+  .toggle input { display: none; }
+  .toggle-slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #da3633; border-radius: 11px; transition: 0.3s; }
+  .toggle input:checked + .toggle-slider { background: #2ea043; }
+  .toggle-slider::before { content: ''; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.3s; }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+  .toggle.busy .toggle-slider { opacity: 0.5; }
+  .btn-restart { background: none; border: 1px solid #555; color: #aaa; border-radius: 4px; padding: 2px 6px; font-size: 0.7rem; cursor: pointer; }
+  .btn-restart:hover { border-color: #d29922; color: #d29922; }
+  .btn-restart:disabled { opacity: 0.4; cursor: not-allowed; }
+  .error-toast { position: fixed; top: 20px; right: 20px; background: #da3633; color: #fff; padding: 12px 20px; border-radius: 6px; display: none; z-index: 100; font-size: 0.9rem; }
+  .status-count { font-size: 0.8rem; color: #888; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Service Manager</h1>
+  <div class="ram-bar">
+    <div class="ram-bar-fill" id="ramFill" style="width:0%; background:#2ea043;"></div>
+    <span class="ram-bar-text" id="ramText">Loading...</span>
+  </div>
+</div>
+<div id="groups"></div>
+<div class="error-toast" id="errorToast"></div>
+
+<script>
+let state = { services: [], ramUsed: 0, ramTotal: 0 };
+let collapsed = null;
+let busyServices = {};
+
+async function fetchServices() {
+  try {
+    const res = await fetch('/api/services');
+    if (!res.ok) throw new Error('Failed to fetch');
+    state = await res.json();
+    // First load: collapse all groups
+    if (collapsed === null) {
+      collapsed = {};
+      const seen = {};
+      (state.services || []).forEach(s => {
+        if (!seen[s.group]) {
+          seen[s.group] = true;
+          collapsed[s.group] = true;
+        }
+      });
+    }
+    render();
+  } catch (e) {
+    showError('Cannot reach service manager API');
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorToast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+async function scaleService(ns, name, replicas) {
+  const key = ns + '/' + name;
+  busyServices[key] = true;
+  render();
+  try {
+    const res = await fetch('/api/services/scale', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ namespace: ns, name: name, replicas: replicas })
+    });
+    if (res.status === 401 || res.status === 403) {
+      window.location.reload();
+      return;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Scale failed');
+    }
+    await fetchServices();
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    delete busyServices[key];
+    render();
+  }
+}
+
+async function restartService(ns, name) {
+  const key = ns + '/' + name;
+  busyServices[key] = true;
+  render();
+  try {
+    const res = await fetch('/api/services/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ namespace: ns, name: name })
+    });
+    if (res.status === 401 || res.status === 403) {
+      window.location.reload();
+      return;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Restart failed');
+    }
+    await fetchServices();
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    delete busyServices[key];
+    render();
+  }
+}
+
+async function scaleGroup(group, replicas) {
+  const svcs = state.services.filter(s => s.group === group);
+  const key = 'group:' + group;
+  busyServices[key] = true;
+  render();
+  try {
+    const res = await fetch('/api/groups/scale', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: group, replicas: replicas })
+    });
+    if (res.status === 401 || res.status === 403) {
+      window.location.reload();
+      return;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Group scale failed');
+    }
+    await fetchServices();
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    delete busyServices[key];
+    render();
+  }
+}
+
+function formatMB(bytes) {
+  if (bytes === 0) return '0 MB';
+  return (bytes / 1024 / 1024).toFixed(0) + ' MB';
+}
+
+function render() {
+  // RAM bar
+  const pct = state.ramTotal > 0 ? (state.ramUsed / state.ramTotal * 100) : 0;
+  const fill = document.getElementById('ramFill');
+  fill.style.width = pct.toFixed(1) + '%';
+  fill.style.background = pct > 85 ? '#da3633' : pct > 70 ? '#d29922' : '#2ea043';
+  document.getElementById('ramText').textContent = formatMB(state.ramUsed) + ' / ' + formatMB(state.ramTotal) + ' (' + pct.toFixed(1) + '%)';
+
+  // Groups
+  const groups = {};
+  (state.services || []).forEach(s => {
+    if (!groups[s.group]) groups[s.group] = [];
+    groups[s.group].push(s);
+  });
+
+  let html = '';
+  for (const [group, svcs] of Object.entries(groups)) {
+    const running = svcs.filter(s => s.replicas > 0).length;
+    const total = svcs.length;
+    const groupRAM = svcs.reduce((sum, s) => sum + (s.ramBytes || 0), 0);
+    const isCollapsed = collapsed[group];
+    const groupBusy = busyServices['group:' + group];
+
+    html += '<div class="group">';
+    html += '<div class="group-header" onclick="toggleGroup(\'' + group + '\')">';
+    html += '<div style="display:flex;align-items:center;gap:8px;">';
+    html += '<span class="chevron ' + (isCollapsed ? 'collapsed' : '') + '">&#9660;</span>';
+    html += '<span class="group-title">' + group + '</span>';
+    html += '<span class="status-count">' + running + '/' + total + ' running';
+    if (groupRAM > 0) html += ' &middot; ' + formatMB(groupRAM);
+    html += '</span>';
+    html += '</div>';
+    const hasStoppable = svcs.some(s => s.canStop);
+    html += '<div class="group-actions">';
+    if (hasStoppable) {
+      html += '<button class="btn-start" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + group + '\',1)">Start All</button>';
+      html += '<button class="btn-stop" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + group + '\',0)">Stop All</button>';
+    }
+    html += '</div></div>';
+
+    html += '<div class="group-body ' + (isCollapsed ? 'collapsed' : '') + '">';
+    svcs.forEach(s => {
+      const key = s.namespace + '/' + s.name;
+      const busy = busyServices[key];
+      const isRunning = s.replicas > 0;
+      const dotClass = s.ready ? 'dot-running' : (isRunning ? 'dot-pending' : 'dot-stopped');
+
+      html += '<div class="svc">';
+      html += '<div class="svc-info">';
+      html += '<span class="svc-dot ' + dotClass + '"></span>';
+      html += '<span class="svc-name">' + s.displayName + '</span>';
+      if (s.ramBytes > 0) html += '<span class="svc-ram">(' + formatMB(s.ramBytes) + ')</span>';
+      html += '</div>';
+      const canStop = s.canStop !== false;
+      html += '<div class="svc-right">';
+      if (isRunning) {
+        html += '<button class="btn-restart" ' + (busy ? 'disabled' : '') + ' onclick="restartService(\'' + s.namespace + '\',\'' + s.name + '\')">restart</button>';
+      }
+      if (canStop) {
+        html += '<label class="toggle ' + (busy ? 'busy' : '') + '">';
+        html += '<input type="checkbox" ' + (isRunning ? 'checked' : '') + ' ' + (busy ? 'disabled' : '') + ' onchange="scaleService(\'' + s.namespace + '\',\'' + s.name + '\',' + (isRunning ? '0' : '1') + ')">';
+        html += '<span class="toggle-slider"></span>';
+        html += '</label>';
+      }
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+  }
+  document.getElementById('groups').innerHTML = html;
+}
+
+function toggleGroup(group) {
+  collapsed[group] = !collapsed[group];
+  render();
+}
+
+fetchServices();
+setInterval(fetchServices, 10000);
+</script>
+</body>
+</html>
