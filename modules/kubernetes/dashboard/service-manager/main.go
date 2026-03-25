@@ -29,6 +29,7 @@ type ServiceStatus struct {
 	Name        string `json:"name"`
 	Namespace   string `json:"namespace"`
 	Group       string `json:"group"`
+	Kind        string `json:"kind"`
 	CanStop     bool   `json:"canStop"`
 	Replicas    int    `json:"replicas"`
 	Ready       bool   `json:"ready"`
@@ -150,7 +151,8 @@ func deploymentDisplayName(name string) string {
 	return strings.Join(parts, " ")
 }
 
-type k8sDeployment struct {
+type k8sWorkload struct {
+	Kind     string `json:"kind"`
 	Metadata struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
@@ -163,10 +165,9 @@ type k8sDeployment struct {
 	} `json:"status"`
 }
 
-func listAllDeployments() []k8sDeployment {
-	resp, err := k8sRequest("GET", "/apis/apps/v1/deployments", nil)
+func listWorkloads(apiPath, kind string) []k8sWorkload {
+	resp, err := k8sRequest("GET", apiPath, nil)
 	if err != nil {
-		log.Printf("Error listing all deployments: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
@@ -174,12 +175,23 @@ func listAllDeployments() []k8sDeployment {
 		return nil
 	}
 	var result struct {
-		Items []k8sDeployment `json:"items"`
+		Items []k8sWorkload `json:"items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil
 	}
+	for i := range result.Items {
+		result.Items[i].Kind = kind
+	}
 	return result.Items
+}
+
+func listAllWorkloads() []k8sWorkload {
+	var all []k8sWorkload
+	all = append(all, listWorkloads("/apis/apps/v1/deployments", "Deployment")...)
+	all = append(all, listWorkloads("/apis/apps/v1/statefulsets", "StatefulSet")...)
+	all = append(all, listWorkloads("/apis/apps/v1/daemonsets", "DaemonSet")...)
+	return all
 }
 
 type podMetric struct {
@@ -323,7 +335,7 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deployments := listAllDeployments()
+	deployments := listAllWorkloads()
 	podMetrics := getPodMetricsAll()
 	ramUsed, ramTotal := getNodeRAM()
 
@@ -351,6 +363,7 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 			Name:        d.Metadata.Name,
 			Namespace:   ns,
 			Group:       groupName(ns),
+			Kind:        d.Kind,
 			CanStop:     !isNoStop(ns, d.Metadata.Name),
 			Replicas:    replicas,
 			Ready:       d.Status.ReadyReplicas > 0,
@@ -423,8 +436,8 @@ func handleScaleGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deployments := listAllDeployments()
-	var matched []k8sDeployment
+	deployments := listAllWorkloads()
+	var matched []k8sWorkload
 	for _, d := range deployments {
 		if groupName(d.Metadata.Namespace) == req.Group {
 			matched = append(matched, d)
@@ -458,38 +471,83 @@ func handleScaleGroup(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+func findWorkloadKind(ns, name string) string {
+	workloads := listAllWorkloads()
+	for _, w := range workloads {
+		if w.Metadata.Namespace == ns && w.Metadata.Name == name {
+			return w.Kind
+		}
+	}
+	return "Deployment"
+}
+
 func scaleDeployment(ns, name string, replicas int) error {
+	kind := findWorkloadKind(ns, name)
+
 	mu.Lock()
 	defer mu.Unlock()
 
-	payload := fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas)
-	resp, err := k8sRequest("PATCH",
-		fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/%s/scale", ns, name),
-		strings.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("k8s API error: %w", err)
+	if kind == "DaemonSet" {
+		var payload string
+		if replicas == 0 {
+			payload = `{"spec":{"template":{"spec":{"nodeSelector":{"non-existing":"true"}}}}}`
+		} else {
+			payload = `{"spec":{"template":{"spec":{"nodeSelector":null}}}}`
+		}
+		resp, err := k8sRequest("PATCH",
+			fmt.Sprintf("/apis/apps/v1/namespaces/%s/daemonsets/%s", ns, name),
+			strings.NewReader(payload))
+		if err != nil {
+			return fmt.Errorf("k8s API error: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("scale failed (%d): %s", resp.StatusCode, string(body))
+		}
+	} else {
+		resource := "deployments"
+		if kind == "StatefulSet" {
+			resource = "statefulsets"
+		}
+		payload := fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas)
+		resp, err := k8sRequest("PATCH",
+			fmt.Sprintf("/apis/apps/v1/namespaces/%s/%s/%s/scale", ns, resource, name),
+			strings.NewReader(payload))
+		if err != nil {
+			return fmt.Errorf("k8s API error: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("scale failed (%d): %s", resp.StatusCode, string(body))
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("scale failed (%d): %s", resp.StatusCode, string(body))
-	}
+
 	action := "stopped"
 	if replicas > 0 {
 		action = "started"
 	}
-	log.Printf("Service %s/%s %s (replicas=%d)", ns, name, action, replicas)
+	log.Printf("Service %s/%s (%s) %s", ns, name, kind, action)
 	return nil
 }
 
 func restartDeployment(ns, name string) error {
+	kind := findWorkloadKind(ns, name)
+
 	mu.Lock()
 	defer mu.Unlock()
+	resource := "deployments"
+	if kind == "StatefulSet" {
+		resource = "statefulsets"
+	} else if kind == "DaemonSet" {
+		resource = "daemonsets"
+	}
 
 	timestamp := time.Now().Format(time.RFC3339)
 	payload := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`, timestamp)
 	resp, err := k8sRequest("PATCH",
-		fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/%s", ns, name),
+		fmt.Sprintf("/apis/apps/v1/namespaces/%s/%s/%s", ns, resource, name),
 		strings.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("k8s API error: %w", err)
@@ -499,7 +557,7 @@ func restartDeployment(ns, name string) error {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("restart failed (%d): %s", resp.StatusCode, string(body))
 	}
-	log.Printf("Service %s/%s restarted", ns, name)
+	log.Printf("Service %s/%s (%s) restarted", ns, name, kind)
 	return nil
 }
 

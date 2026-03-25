@@ -59,10 +59,7 @@ let
 
   # Namespaces that should be scaled to 0 (service disabled in config)
   disabledNamespaces = lib.concatLists (
-    lib.mapAttrsToList (
-      name: namespaces:
-      if enabled name then [ ] else namespaces
-    ) serviceNamespaces
+    lib.mapAttrsToList (name: namespaces: if enabled name then [ ] else namespaces) serviceNamespaces
   );
 
   # Build Go binary
@@ -89,140 +86,141 @@ in
 {
   systemd.services = {
     service-manager-setup = {
-    description = "Setup Service Manager";
-    after = [ "k3s-storage.target" ];
-    requires = [ "k3s-storage.target" ];
-    wantedBy = [ "k3s-core.target" ];
-    before = [ "k3s-core.target" ];
+      description = "Setup Service Manager";
+      after = [ "k3s-storage.target" ];
+      requires = [ "k3s-storage.target" ];
+      wantedBy = [ "k3s-core.target" ];
+      before = [ "k3s-core.target" ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "service-manager-setup" ''
-                ${k8s.libShSource}
-                setup_preamble "${markerFile}" "Service Manager"
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "service-manager-setup" ''
+                  ${k8s.libShSource}
+                  setup_preamble "${markerFile}" "Service Manager"
 
-                wait_for_k3s
-                wait_for_traefik
-                wait_for_certificate
-                setup_namespace "${ns}"
+                  wait_for_k3s
+                  wait_for_traefik
+                  wait_for_certificate
+                  setup_namespace "${ns}"
 
-                # Import container image
-                echo "Importing Service Manager image..."
-                ${pkgs.k3s}/bin/k3s ctr images import ${serviceManagerImage}
+                  # Import container image
+                  echo "Importing Service Manager image..."
+                  ${pkgs.k3s}/bin/k3s ctr images import ${serviceManagerImage}
 
-                # ServiceAccount + RBAC
-                cat <<'EOF' | $KUBECTL apply -f -
-        apiVersion: v1
-        kind: ServiceAccount
-        metadata:
-          name: service-manager
-          namespace: ${ns}
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRole
-        metadata:
-          name: service-manager
-        rules:
-          - apiGroups: ["apps"]
-            resources: ["deployments"]
-            verbs: ["get", "list", "patch"]
-          - apiGroups: ["apps"]
-            resources: ["deployments/scale"]
-            verbs: ["get", "update", "patch"]
-          - apiGroups: ["metrics.k8s.io"]
-            resources: ["pods"]
-            verbs: ["get", "list"]
-          - apiGroups: [""]
-            resources: ["nodes"]
-            verbs: ["get", "list"]
-          - apiGroups: ["metrics.k8s.io"]
-            resources: ["nodes"]
-            verbs: ["get", "list"]
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRoleBinding
-        metadata:
-          name: service-manager
-        roleRef:
-          apiGroup: rbac.authorization.k8s.io
-          kind: ClusterRole
-          name: service-manager
-        subjects:
-          - kind: ServiceAccount
+                  # ServiceAccount + RBAC
+                  cat <<'EOF' | $KUBECTL apply -f -
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
             name: service-manager
             namespace: ${ns}
-        EOF
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: service-manager
+          rules:
+            - apiGroups: ["apps"]
+              resources: ["deployments", "statefulsets", "daemonsets"]
+              verbs: ["get", "list", "patch"]
+            - apiGroups: ["apps"]
+              resources: ["deployments/scale", "statefulsets/scale"]
+              verbs: ["get", "update", "patch"]
+            - apiGroups: ["metrics.k8s.io"]
+              resources: ["pods"]
+              verbs: ["get", "list"]
+            - apiGroups: [""]
+              resources: ["nodes"]
+              verbs: ["get", "list"]
+            - apiGroups: ["metrics.k8s.io"]
+              resources: ["nodes"]
+              verbs: ["get", "list"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: service-manager
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: service-manager
+          subjects:
+            - kind: ServiceAccount
+              name: service-manager
+              namespace: ${ns}
+          EOF
 
-                # ConfigMap with service whitelist
-                $KUBECTL create configmap service-manager-config -n ${ns} \
-                  --from-literal=services.json='${servicesJson}' \
-                  --dry-run=client -o yaml | $KUBECTL apply -f -
+                  # ConfigMap with service whitelist
+                  $KUBECTL create configmap service-manager-config -n ${ns} \
+                    --from-literal=services.json='${servicesJson}' \
+                    --dry-run=client -o yaml | $KUBECTL apply -f -
 
-                # Deployment
-                cat <<'EOF' | $KUBECTL apply -f -
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: service-manager
-          namespace: ${ns}
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: service-manager
-          template:
-            metadata:
-              labels:
+                  # Deployment
+                  cat <<'EOF' | $KUBECTL apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: service-manager
+            namespace: ${ns}
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
                 app: service-manager
-            spec:
-              serviceAccountName: service-manager
-              containers:
-              - name: service-manager
-                image: docker.io/library/service-manager:latest
-                imagePullPolicy: Never
-                ports:
-                - containerPort: 8080
-                resources:
-                  requests:
-                    cpu: 5m
-                    memory: 16Mi
-                  limits:
-                    memory: 64Mi
-                volumeMounts:
+            template:
+              metadata:
+                labels:
+                  app: service-manager
+              spec:
+                serviceAccountName: service-manager
+                containers:
+                - name: service-manager
+                  image: docker.io/library/service-manager:latest
+                  imagePullPolicy: Never
+                  ports:
+                  - containerPort: 8080
+                  resources:
+                    requests:
+                      cpu: 5m
+                      memory: 16Mi
+                    limits:
+                      memory: 64Mi
+                  volumeMounts:
+                  - name: config
+                    mountPath: /config
+                volumes:
                 - name: config
-                  mountPath: /config
-              volumes:
-              - name: config
-                configMap:
-                  name: service-manager-config
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: service-manager
-          namespace: ${ns}
-        spec:
-          selector:
-            app: service-manager
-          ports:
-          - port: 8080
-            targetPort: 8080
-        EOF
+                  configMap:
+                    name: service-manager-config
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: service-manager
+            namespace: ${ns}
+          spec:
+            selector:
+              app: service-manager
+            ports:
+            - port: 8080
+              targetPort: 8080
+          EOF
 
-                wait_for_deployment "${ns}" "service-manager" 120
+                  wait_for_deployment "${ns}" "service-manager" 120
 
-                # IngressRoute: UI + read API (no auth)
-                create_ingress_route "service-manager" "${ns}" "$(hostname services)" "service-manager" "8080"
+                  # IngressRoute: UI + read API (no auth)
+                  create_ingress_route "service-manager" "${ns}" "$(hostname services)" "service-manager" "8080"
 
-                print_success "Service Manager" \
-                  "URL: https://$(hostname services)"
+                  print_success "Service Manager" \
+                    "URL: https://$(hostname services)"
 
-                create_marker "${markerFile}"
-      '';
+                  create_marker "${markerFile}"
+        '';
+      };
     };
-  };
-  } // lib.optionalAttrs (disabledNamespaces != [ ]) {
+  }
+  // lib.optionalAttrs (disabledNamespaces != [ ]) {
     service-scaledown = {
       description = "Scale down disabled services";
       after = [ "k3s-extras.target" ];
@@ -233,17 +231,20 @@ in
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = pkgs.writeShellScript "service-scaledown" ''
-                  ${k8s.libShSource}
-                  export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          ${k8s.libShSource}
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-                  echo "Scaling down disabled services..."
-                  ${lib.concatMapStringsSep "\n" (namespace: ''
-                    echo "Scaling down namespace: ${namespace}"
-                    for deploy in $($KUBECTL get deployments -n ${namespace} -o name 2>/dev/null); do
-                      $KUBECTL scale "$deploy" --replicas=0 -n ${namespace} 2>/dev/null || true
-                    done
-                  '') disabledNamespaces}
-                  echo "Scale-down complete"
+          echo "Scaling down disabled services..."
+          ${lib.concatMapStringsSep "\n" (namespace: ''
+            echo "Scaling down namespace: ${namespace}"
+            for resource in $($KUBECTL get deployments,statefulsets -n ${namespace} -o name 2>/dev/null); do
+              $KUBECTL scale "$resource" --replicas=0 -n ${namespace} 2>/dev/null || true
+            done
+            for ds in $($KUBECTL get daemonsets -n ${namespace} -o name 2>/dev/null); do
+              $KUBECTL patch "$ds" -n ${namespace} -p '{"spec":{"template":{"spec":{"nodeSelector":{"non-existing":"true"}}}}}' 2>/dev/null || true
+            done
+          '') disabledNamespaces}
+          echo "Scale-down complete"
         '';
       };
     };

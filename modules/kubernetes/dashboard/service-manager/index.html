@@ -36,6 +36,7 @@
   .dot-pending { background: #d29922; }
   .svc-name { font-size: 0.9rem; }
   .svc-ram { color: #888; font-size: 0.8rem; margin-left: 4px; }
+  .svc-kind { font-size: 0.65rem; color: #666; background: #2b2b2b; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
   .svc-right { display: flex; align-items: center; gap: 8px; }
   .toggle { position: relative; width: 40px; height: 22px; cursor: pointer; }
   .toggle input { display: none; }
@@ -47,13 +48,18 @@
   .btn-restart { background: none; border: 1px solid #555; color: #aaa; border-radius: 4px; padding: 2px 6px; font-size: 0.7rem; cursor: pointer; }
   .btn-restart:hover { border-color: #d29922; color: #d29922; }
   .btn-restart:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-toggle-all { background: none; border: 1px solid #444; color: #888; border-radius: 4px; padding: 3px 10px; font-size: 0.75rem; cursor: pointer; }
+  .btn-toggle-all:hover { border-color: #666; color: #ccc; }
   .error-toast { position: fixed; top: 20px; right: 20px; background: #da3633; color: #fff; padding: 12px 20px; border-radius: 6px; display: none; z-index: 100; font-size: 0.9rem; }
   .status-count { font-size: 0.8rem; color: #888; }
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>Service Manager</h1>
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h1>Service Manager</h1>
+    <button class="btn-toggle-all" id="toggleAllBtn" onclick="toggleAll()">Expand</button>
+  </div>
   <div class="ram-bar">
     <div class="ram-bar-fill" id="ramFill" style="width:0%; background:#2ea043;"></div>
     <span class="ram-bar-text" id="ramText">Loading...</span>
@@ -215,11 +221,16 @@ function render() {
     if (groupRAM > 0) html += ' &middot; ' + formatMB(groupRAM);
     html += '</span>';
     html += '</div>';
-    const hasStoppable = svcs.some(s => s.canStop);
+    const stoppable = svcs.filter(s => s.canStop);
+    const stoppableRunning = stoppable.filter(s => s.replicas > 0).length;
+    const allRunning = stoppableRunning === stoppable.length;
+    const allStopped = stoppableRunning === 0;
     html += '<div class="group-actions">';
-    if (hasStoppable) {
-      html += '<button class="btn-start" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + group + '\',1)">Start All</button>';
-      html += '<button class="btn-stop" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + group + '\',0)">Stop All</button>';
+    if (stoppable.length > 0 && !allRunning) {
+      html += '<button class="btn-start" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + group + '\',1)">Start</button>';
+    }
+    if (stoppable.length > 0 && !allStopped) {
+      html += '<button class="btn-stop" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + group + '\',0)">Stop</button>';
     }
     html += '</div></div>';
 
@@ -234,6 +245,7 @@ function render() {
       html += '<div class="svc-info">';
       html += '<span class="svc-dot ' + dotClass + '"></span>';
       html += '<span class="svc-name">' + s.displayName + '</span>';
+      if (s.kind && s.kind !== 'Deployment') html += '<span class="svc-kind">' + s.kind + '</span>';
       if (s.ramBytes > 0) html += '<span class="svc-ram">(' + formatMB(s.ramBytes) + ')</span>';
       html += '</div>';
       const canStop = s.canStop !== false;
@@ -252,10 +264,20 @@ function render() {
     html += '</div></div>';
   }
   document.getElementById('groups').innerHTML = html;
+  const allCollapsed = Object.values(collapsed).every(v => v);
+  document.getElementById('toggleAllBtn').textContent = allCollapsed ? 'Expand' : 'Collapse';
 }
 
 function toggleGroup(group) {
   collapsed[group] = !collapsed[group];
+  render();
+}
+
+function toggleAll() {
+  const allCollapsed = Object.values(collapsed).every(v => v);
+  for (const g in collapsed) {
+    collapsed[g] = !allCollapsed;
+  }
   render();
 }
 
