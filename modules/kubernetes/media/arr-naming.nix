@@ -105,7 +105,7 @@ in
               .autoRenameFolders = true |
               .importExtraFiles = true |
               .extraFileExtensions = "srt,sub,idx" |
-              .hardlinksCopy = true |
+              .copyUsingHardlinks = true |
               .autoUnmonitorPreviouslyDownloadedEpisodes = true |
               .downloadPropersAndRepacks = "doNotPrefer"
             ')
@@ -150,7 +150,7 @@ in
               .autoRenameFolders = true |
               .importExtraFiles = true |
               .extraFileExtensions = "srt,sub,idx" |
-              .hardlinksCopy = true |
+              .copyUsingHardlinks = true |
               .minimumFreeSpaceWhenImporting = 10000 |
               .downloadPropersAndRepacks = "doNotPrefer"
             ')

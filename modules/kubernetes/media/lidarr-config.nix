@@ -93,7 +93,7 @@ in
           ${curl} -s "http://localhost:8686/api/v1/config/mediamanagement" \
           -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
         if [ -n "$CURRENT_MGMT" ]; then
-          UPDATED_MGMT=$(echo "$CURRENT_MGMT" | $JQ '.hardlinksCopy = true')
+          UPDATED_MGMT=$(echo "$CURRENT_MGMT" | $JQ '.copyUsingHardlinks = true')
           $KUBECTL exec -n ${ns} deploy/lidarr -- \
             ${curl} -s -X PUT "http://localhost:8686/api/v1/config/mediamanagement" \
             -H "X-Api-Key: $LIDARR_API" \
