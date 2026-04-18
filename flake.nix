@@ -11,6 +11,12 @@
       url = "github:ryantm/agenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nixos-k8s = {
+      url = "github:josecriane/nixos-k8s";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.disko.follows = "disko";
+      inputs.agenix.follows = "agenix";
+    };
   };
 
   outputs =
@@ -19,6 +25,7 @@
       nixpkgs,
       disko,
       agenix,
+      nixos-k8s,
       ...
     }@inputs:
     let
@@ -52,7 +59,14 @@
         in
         nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = { inherit inputs serverConfig secretsPath; };
+          specialArgs = {
+            inherit
+              inputs
+              serverConfig
+              secretsPath
+              nixos-k8s
+              ;
+          };
           modules = [
             disko.nixosModules.disko
             agenix.nixosModules.default
