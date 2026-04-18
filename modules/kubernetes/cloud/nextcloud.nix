@@ -388,10 +388,12 @@ in
           exit 1
         fi
 
-        NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}')
+        # Get Nextcloud pod; may be absent if scaled to 0 by service-manager.
+        # Skip gracefully without marker so it retries on next boot or when scaled back up.
+        NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
         if [ -z "$NC_POD" ]; then
-          echo "Nextcloud pod not found"
-          exit 1
+          echo "No Nextcloud pod found (scaled to 0 or not installed yet), skipping OIDC setup"
+          exit 0
         fi
 
         # Wait for pod ready

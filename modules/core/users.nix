@@ -87,6 +87,14 @@ in
             options = [ "NOPASSWD" ];
           }
           {
+            command = "/run/current-system/sw/bin/systemctl start service-scaledown.service";
+            options = [ "NOPASSWD" ];
+          }
+          {
+            command = "/run/current-system/sw/bin/systemctl restart service-scaledown.service";
+            options = [ "NOPASSWD" ];
+          }
+          {
             command = "/run/current-system/sw/bin/systemctl start nfs-heal.service";
             options = [ "NOPASSWD" ];
           }

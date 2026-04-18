@@ -140,6 +140,17 @@ in
           GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups, 'admins') && 'Admin' || 'Viewer'"
         EOF
 
+                # Wait up to 180s for Grafana deployment to appear.
+                # If monitoring is disabled or still installing, skip gracefully without marker.
+                for _i in $(seq 1 36); do
+                  $KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} &>/dev/null && break
+                  sleep 5
+                done
+                if ! $KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} &>/dev/null; then
+                  echo "Grafana deployment not found, skipping OIDC setup (will retry next boot)"
+                  exit 0
+                fi
+
                 # Patch Grafana deployment to use envFrom secret
                 if ! $KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} -o jsonpath='{.spec.template.spec.containers[*].envFrom}' | grep -q "grafana-oidc-env"; then
                   $KUBECTL patch deployment kube-prometheus-stack-grafana -n ${ns} --type=strategic -p='{
@@ -158,7 +169,14 @@ in
                   # Secret already referenced but content may have changed -- restart to pick up new values
                   $KUBECTL rollout restart deployment/kube-prometheus-stack-grafana -n ${ns}
                 fi
-                wait_for_pod "${ns}" "app.kubernetes.io/name=grafana" 180
+
+                # Only wait for pod if deployment has replicas > 0 (may be scaled down by service-manager).
+                REPLICAS=$($KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)
+                if [ "''${REPLICAS:-0}" -gt 0 ]; then
+                  wait_for_pod "${ns}" "app.kubernetes.io/name=grafana" 180
+                else
+                  echo "Grafana scaled to 0, patch applied (will take effect on scale up)"
+                fi
 
                 print_success "Grafana OIDC" \
                   "URL: https://$(hostname grafana)" \
