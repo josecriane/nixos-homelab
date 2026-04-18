@@ -3,6 +3,7 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
@@ -10,7 +11,7 @@
   imports = [
     ./nix.nix
     ./users.nix
-    ./ssh.nix
+    "${nixos-k8s}/modules/core/ssh.nix"
     ./security.nix
     ./kdump.nix
   ];

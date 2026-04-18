@@ -36,8 +36,10 @@ cd "$PROJECT_DIR"
 nix flake update
 
 # Clean marker files to force service reconfiguration
+# NOPASSWD rules match single-arg `rm -f /var/lib/*-{setup,config}-done`,
+# so iterate one-file-at-a-time instead of passing all files in a single call.
 echo -e "${YELLOW}Cleaning markers to reconfigure services...${NC}"
-ssh "$ADMIN_USER@$SERVER_IP" "sudo rm -f /var/lib/*-setup-done /var/lib/*-config-done" 2>/dev/null || true
+ssh "$ADMIN_USER@$SERVER_IP" 'for f in /var/lib/*-setup-done /var/lib/*-config-done; do [ -e "$f" ] && sudo rm -f "$f"; done' 2>/dev/null || true
 echo -e "${GREEN}✓ Markers cleaned${NC}"
 
 # Remote rebuild
@@ -47,6 +49,7 @@ nixos-rebuild switch \
     --flake .#homelab \
     --target-host "$ADMIN_USER@$SERVER_IP" \
     --sudo \
+    --ask-sudo-password \
     --impure
 REBUILD_EXIT=$?
 set -e
