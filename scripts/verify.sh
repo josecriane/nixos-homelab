@@ -112,7 +112,7 @@ done
 echo ""
 echo -e "${YELLOW}5. SSO (Authentik)${NC}"
 
-MW=$(remote "sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get middleware -n traefik-system authentik-forward-auth -o name" 2>/dev/null)
+MW=$(remote "sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get middleware -n traefik-system forward-auth -o name" 2>/dev/null)
 check "Middleware ForwardAuth" "$MW"
 
 SSO_SECRET=$(remote "sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get secret -n traefik-system authentik-sso-credentials -o name" 2>/dev/null)

@@ -66,8 +66,8 @@ in
 
         # IngressRoutes
         create_ingress_route "grafana" "${ns}" "$(hostname grafana)" "kube-prometheus-stack-grafana" "80"
-        create_ingress_route "prometheus" "${ns}" "$(hostname prometheus)" "kube-prometheus-stack-prometheus" "9090" "authentik-forward-auth:traefik-system"
-        create_ingress_route "alertmanager" "${ns}" "$(hostname alertmanager)" "kube-prometheus-stack-alertmanager" "9093" "authentik-forward-auth:traefik-system"
+        create_ingress_route "prometheus" "${ns}" "$(hostname prometheus)" "kube-prometheus-stack-prometheus" "9090" "forward-auth:traefik-system"
+        create_ingress_route "alertmanager" "${ns}" "$(hostname alertmanager)" "kube-prometheus-stack-alertmanager" "9093" "forward-auth:traefik-system"
 
         store_credentials "${ns}" "grafana-admin-credentials" \
           "ADMIN_USER=admin" "ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD"

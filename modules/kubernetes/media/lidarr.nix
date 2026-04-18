@@ -63,7 +63,7 @@ in
         wait_for_pod "${ns}" "app=lidarr" 180
 
         # IngressRoute (ForwardAuth + local auth)
-        create_ingress_route "lidarr" "${ns}" "$(hostname lidarr)" "lidarr" "8686" "authentik-forward-auth:traefik-system"
+        create_ingress_route "lidarr" "${ns}" "$(hostname lidarr)" "lidarr" "8686" "forward-auth:traefik-system"
 
         print_success "Lidarr" \
           "URLs:" \

@@ -150,7 +150,7 @@
             - match: Host(\`traefik.${serverConfig.subdomain}.${serverConfig.domain}\`)
               kind: Rule
               middlewares:
-                - name: authentik-forward-auth
+                - name: forward-auth
                   namespace: traefik-system
               services:
                 - kind: TraefikService

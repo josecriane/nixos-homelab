@@ -153,12 +153,12 @@ echo ""
 
 # 8. ForwardAuth middleware
 echo -e "${BLUE}[8/10] Checking ForwardAuth middleware...${NC}"
-if kubectl get middleware -n traefik-system authentik-forward-auth &>/dev/null; then
-    check_ok "Middleware 'authentik-forward-auth' exists"
-    FORWARD_AUTH_URL=$(kubectl get middleware -n traefik-system authentik-forward-auth -o jsonpath='{.spec.forwardAuth.address}')
+if kubectl get middleware -n traefik-system forward-auth &>/dev/null; then
+    check_ok "Middleware 'forward-auth' exists"
+    FORWARD_AUTH_URL=$(kubectl get middleware -n traefik-system forward-auth -o jsonpath='{.spec.forwardAuth.address}')
     echo -e "   Address: ${YELLOW}$FORWARD_AUTH_URL${NC}"
 else
-    check_fail "Middleware 'authentik-forward-auth' does not exist"
+    check_fail "Middleware 'forward-auth' does not exist"
 fi
 echo ""
 

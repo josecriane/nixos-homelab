@@ -38,7 +38,7 @@ rec {
 
   forwardAuthMiddleware = [
     {
-      name = "authentik-forward-auth";
+      name = "forward-auth";
       namespace = "traefik-system";
     }
   ];

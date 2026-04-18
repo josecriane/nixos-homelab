@@ -86,14 +86,14 @@ let
     # Cockpit IngressRoute
     create_ingress_route "${nasName}-cockpit" "${ns}" "$(hostname ${nasCfg.hostname or nasName})" "${nasName}-cockpit" "${
       toString (nasCfg.cockpitPort or 9090)
-    }" "authentik-forward-auth:traefik-system"
+    }" "forward-auth:traefik-system"
 
     # FileBrowser IngressRoute
     create_ingress_route "${nasName}-filebrowser" "${ns}" "$(hostname files${
       lib.removePrefix "nas" (nasCfg.hostname or nasName)
     })" "${nasName}-filebrowser" "${
       toString (nasCfg.fileBrowserPort or 8080)
-    }" "authentik-forward-auth:traefik-system"
+    }" "forward-auth:traefik-system"
   '';
 
   # Generate all NAS configurations

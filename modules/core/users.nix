@@ -95,8 +95,11 @@ in
             options = [ "NOPASSWD" ];
           }
           {
-            command = "${pkgs.kubectl}/bin/kubectl";
-            options = [ "NOPASSWD" ];
+            command = "/run/current-system/sw/bin/kubectl";
+            options = [
+              "NOPASSWD"
+              "SETENV"
+            ];
           }
         ];
       }

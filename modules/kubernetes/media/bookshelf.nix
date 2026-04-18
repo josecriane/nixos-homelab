@@ -61,7 +61,7 @@ in
         wait_for_pod "${ns}" "app=bookshelf" 180
 
         # IngressRoute (ForwardAuth + local auth)
-        create_ingress_route "bookshelf" "${ns}" "$(hostname books)" "bookshelf" "8787" "authentik-forward-auth:traefik-system"
+        create_ingress_route "bookshelf" "${ns}" "$(hostname books)" "bookshelf" "8787" "forward-auth:traefik-system"
 
         print_success "Bookshelf" \
           "URLs:" \

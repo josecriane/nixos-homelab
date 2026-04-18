@@ -452,13 +452,13 @@ in
                 # ============================================
                 # CREATE FORWARDAUTH MIDDLEWARE
                 # ============================================
-                if ! $KUBECTL get middleware -n traefik-system authentik-forward-auth &>/dev/null; then
+                if ! $KUBECTL get middleware -n traefik-system forward-auth &>/dev/null; then
                   echo "Creating ForwardAuth middleware..."
                   cat <<EOF | $KUBECTL apply -f -
         apiVersion: traefik.io/v1alpha1
         kind: Middleware
         metadata:
-          name: authentik-forward-auth
+          name: forward-auth
           namespace: traefik-system
         spec:
           forwardAuth:

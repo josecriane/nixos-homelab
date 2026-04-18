@@ -103,7 +103,7 @@ let
   ++ [
     "Proxy providers created for ForwardAuth"
     "Assigned to proxy outpost"
-    "ForwardAuth middleware: authentik-forward-auth (traefik-system)"
+    "ForwardAuth middleware: forward-auth (traefik-system)"
   ];
 in
 {
@@ -343,13 +343,13 @@ in
                     # ============================================
 
                     # Only create if it doesn't exist (might be created by other services)
-                    if ! $KUBECTL get middleware -n traefik-system authentik-forward-auth &>/dev/null; then
+                    if ! $KUBECTL get middleware -n traefik-system forward-auth &>/dev/null; then
                       echo "Creating ForwardAuth middleware..."
                       cat <<EOF | $KUBECTL apply -f -
           apiVersion: traefik.io/v1alpha1
           kind: Middleware
           metadata:
-            name: authentik-forward-auth
+            name: forward-auth
             namespace: traefik-system
           spec:
             forwardAuth:

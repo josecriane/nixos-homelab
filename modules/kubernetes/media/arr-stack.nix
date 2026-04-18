@@ -264,12 +264,12 @@ in
                 wait_for_pod "${ns}" "app=qbittorrent" 180
 
                 # Create IngressRoutes (ForwardAuth + local auth)
-                create_ingress_route "prowlarr" "${ns}" "$(hostname prowlarr)" "prowlarr" "9696" "authentik-forward-auth:traefik-system"
-                create_ingress_route "sonarr" "${ns}" "$(hostname sonarr)" "sonarr" "8989" "authentik-forward-auth:traefik-system"
-                create_ingress_route "sonarr-es" "${ns}" "$(hostname sonarr-es)" "sonarr-es" "8989" "authentik-forward-auth:traefik-system"
-                create_ingress_route "radarr" "${ns}" "$(hostname radarr)" "radarr" "7878" "authentik-forward-auth:traefik-system"
-                create_ingress_route "radarr-es" "${ns}" "$(hostname radarr-es)" "radarr-es" "7878" "authentik-forward-auth:traefik-system"
-                create_ingress_route "qbittorrent" "${ns}" "$(hostname qbit)" "qbittorrent" "8080" "authentik-forward-auth:traefik-system"
+                create_ingress_route "prowlarr" "${ns}" "$(hostname prowlarr)" "prowlarr" "9696" "forward-auth:traefik-system"
+                create_ingress_route "sonarr" "${ns}" "$(hostname sonarr)" "sonarr" "8989" "forward-auth:traefik-system"
+                create_ingress_route "sonarr-es" "${ns}" "$(hostname sonarr-es)" "sonarr-es" "8989" "forward-auth:traefik-system"
+                create_ingress_route "radarr" "${ns}" "$(hostname radarr)" "radarr" "7878" "forward-auth:traefik-system"
+                create_ingress_route "radarr-es" "${ns}" "$(hostname radarr-es)" "radarr-es" "7878" "forward-auth:traefik-system"
+                create_ingress_route "qbittorrent" "${ns}" "$(hostname qbit)" "qbittorrent" "8080" "forward-auth:traefik-system"
 
                 # Pre-configure qBittorrent password
                 # qBittorrent 5.x generates a random temp password on first start
