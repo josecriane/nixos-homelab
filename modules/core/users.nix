@@ -75,6 +75,26 @@ in
             options = [ "NOPASSWD" ];
           }
           {
+            command = "/run/current-system/sw/bin/systemctl start mnt-*.mount";
+            options = [ "NOPASSWD" ];
+          }
+          {
+            command = "/run/current-system/sw/bin/systemctl stop mnt-*.mount";
+            options = [ "NOPASSWD" ];
+          }
+          {
+            command = "/run/current-system/sw/bin/systemctl restart mnt-*.mount";
+            options = [ "NOPASSWD" ];
+          }
+          {
+            command = "/run/current-system/sw/bin/systemctl start nfs-heal.service";
+            options = [ "NOPASSWD" ];
+          }
+          {
+            command = "/run/current-system/sw/bin/systemctl status nfs-heal.service";
+            options = [ "NOPASSWD" ];
+          }
+          {
             command = "${pkgs.kubectl}/bin/kubectl";
             options = [ "NOPASSWD" ];
           }

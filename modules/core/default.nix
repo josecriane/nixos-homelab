@@ -9,7 +9,7 @@
 
 {
   imports = [
-    ./nix.nix
+    "${nixos-k8s}/modules/core/nix.nix"
     ./users.nix
     "${nixos-k8s}/modules/core/ssh.nix"
     ./security.nix
