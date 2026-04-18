@@ -105,20 +105,22 @@ let
   disabledServices = lib.filterAttrs (name: _: !(enabled name)) serviceMap;
   hasDisabled = (builtins.length (builtins.attrNames disabledServices)) > 0;
 
+  # Disabled services: remove markers so re-enabling re-runs setup.
+  # DO NOT delete K8s resources here — service-scaledown.service scales
+  # deployments to 0 replicas instead, preserving manifests and PVCs.
+  # extraCleanup handles cross-namespace resources (e.g. traefik middleware
+  # created by authentik) that aren't covered by scale-down.
   cleanupCommands = lib.concatStringsSep "\n" (
     lib.mapAttrsToList (
       name: cfg:
       let
-        nsCleanups = lib.concatMapStringsSep "\n" (ns: ''cleanup_namespace "${ns}"'') cfg.namespaces;
-
         markerCleanups = lib.concatMapStringsSep "\n" (m: ''rm -f "/var/lib/${m}"'') cfg.markers;
 
         extra = cfg.extraCleanup or "";
       in
       ''
         echo ""
-        echo "=== Cleaning disabled service: ${name} ==="
-        ${nsCleanups}
+        echo "=== Cleaning markers for disabled service: ${name} ==="
         ${extra}
         ${markerCleanups}
       ''

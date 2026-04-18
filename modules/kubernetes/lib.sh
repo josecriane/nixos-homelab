@@ -397,7 +397,7 @@ store_credentials() {
   $KUBECTL create secret generic "$secret_name" \
     --namespace "$ns" $literal_args \
     --dry-run=client -o yaml | $KUBECTL apply -f -
-  $KUBECTL label secret "$secret_name" -n "$ns" homelab/credential=true --overwrite 2>/dev/null || true
+  $KUBECTL label secret "$secret_name" -n "$ns" k8s/credential=true --overwrite 2>/dev/null || true
 }
 
 generate_password() {
@@ -466,7 +466,7 @@ cleanup_namespace() {
 
   # Delete config resources
   $KUBECTL delete configmaps --all -n "$ns" --ignore-not-found=true 2>/dev/null || true
-  $KUBECTL delete secrets -n "$ns" -l 'homelab/credential!=true' --ignore-not-found=true 2>/dev/null || true
+  $KUBECTL delete secrets -n "$ns" -l 'k8s/credential!=true' --ignore-not-found=true 2>/dev/null || true
 
   echo "Cleanup completed for namespace $ns (PVCs preserved)"
 }

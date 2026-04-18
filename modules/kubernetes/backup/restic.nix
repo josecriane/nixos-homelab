@@ -119,7 +119,7 @@ let
     done
 
     # Credential secrets backup (all namespaces, labeled)
-    ${kubectl} get secrets --all-namespaces -l homelab/credential=true -o yaml \
+    ${kubectl} get secrets --all-namespaces -l k8s/credential=true -o yaml \
       > "${dumpDir}/k8s-secrets/all-credentials.yaml" 2>/dev/null || true
     echo "  K8s Secrets: $(du -sh "${dumpDir}/k8s-secrets" | cut -f1)"
 
