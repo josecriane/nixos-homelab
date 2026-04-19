@@ -23,18 +23,10 @@
     {
       self,
       nixpkgs,
-      disko,
-      agenix,
       nixos-k8s,
       ...
-    }@inputs:
+    }:
     let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs {
-        inherit system;
-        config.allowUnfree = true;
-      };
-
       # config.nix and secrets/ are gitignored, so we read them from
       # the real filesystem using PWD (requires --impure)
       projectDir = builtins.getEnv "PWD";
@@ -63,11 +55,13 @@
           cni = "flannel";
           podCidr = "10.42.0.0/16";
           serviceCidr = "10.43.0.0/16";
-        } // (rawConfig.kubernetes or { });
+        }
+        // (rawConfig.kubernetes or { });
 
         certificates = {
           provider = "acme";
-        } // (rawConfig.certificates or { });
+        }
+        // (rawConfig.certificates or { });
       };
 
       bootstrapName = builtins.head (
@@ -94,22 +88,8 @@
         homelab = clusterConfigs.${bootstrapName};
       };
 
-      formatter.${system} = pkgs.nixfmt-rfc-style;
+      formatter = nixos-k8s.formatter;
 
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          nixos-anywhere
-          kubectl
-          kubernetes-helm
-          k9s
-          age
-          jq
-          yq-go
-        ];
-        shellHook = ''
-          echo "NixOS Homelab - Dev Shell"
-          echo "Commands: run 'make help' to list targets"
-        '';
-      };
+      devShells = nixos-k8s.devShells;
     };
 }

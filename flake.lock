@@ -99,8 +99,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1776638366,
-        "narHash": "sha256-hBXRq3lnsbZ+2ZTRBAxWLy1+8IHo88gw+LC5HR2+JqE=",
+        "lastModified": 1776639373,
+        "narHash": "sha256-7+JTswFHx+Ufvs6vKdVRtRwPlCEYmiW4K/uVpfenJJU=",
         "path": "/home/sito/dev/devops/nixos-k8s",
         "type": "path"
       },

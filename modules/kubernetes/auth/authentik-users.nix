@@ -20,15 +20,13 @@ let
 
   users = serverConfig.authentik.bootstrapUsers or { };
 
-  userList = lib.mapAttrsToList (
-    username: cfg: {
-      inherit username;
-      email = cfg.email;
-      name = cfg.name or username;
-      groups = cfg.groups or [ ];
-      passwordSecret = cfg.passwordSecret;
-    }
-  ) users;
+  userList = lib.mapAttrsToList (username: cfg: {
+    inherit username;
+    email = cfg.email;
+    name = cfg.name or username;
+    groups = cfg.groups or [ ];
+    passwordSecret = cfg.passwordSecret;
+  }) users;
 
   configHash = builtins.hashString "sha256" (builtins.toJSON userList);
 
