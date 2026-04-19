@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared helpers for scripts/ - read config.nix using the nodes schema.
 # Usage: source "$(dirname "$0")/lib.sh"
 

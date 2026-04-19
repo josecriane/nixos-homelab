@@ -93,6 +93,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
     echo ""
 
     # Load current values (bootstrap node from nodes schema)
+    # shellcheck source=scripts/lib.sh
     source "$SCRIPT_DIR/lib.sh"
     CURRENT_SERVER_NAME=$(get_bootstrap_name || echo "homelab")
     CURRENT_SERVER_IP=$(get_bootstrap_ip || echo "192.168.1.100")

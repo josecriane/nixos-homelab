@@ -12,7 +12,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixos-k8s = {
-      url = "path:/home/sito/dev/devops/nixos-k8s";
+      url = "github:josecriane/nixos-k8s";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.disko.follows = "disko";
       inputs.agenix.follows = "agenix";
