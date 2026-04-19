@@ -324,4 +324,12 @@ in
       '';
     };
   };
+
+  # BitTorrent traffic for qBittorrent (Service/qbittorrent-bt, MetalLB layer2).
+  # MetalLB advertises via ARP on the host interface, so packets hit the host
+  # firewall before kube-proxy DNATs them.
+  networking.firewall = {
+    allowedTCPPorts = [ 6881 ];
+    allowedUDPPorts = [ 6881 ];
+  };
 }

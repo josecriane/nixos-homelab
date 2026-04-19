@@ -52,75 +52,47 @@
         else
           throw impureMsg;
 
-      mkHost =
-        hostName:
-        let
-          rawConfig = import configPath;
+      rawConfig = import configPath;
 
-          # Adapter: the single-host homelab config is projected onto the
-          # multi-node schema that nixos-k8s modules (k3s, metallb, traefik,
-          # cert-manager, ...) expect in specialArgs. Existing homelab
-          # modules ignore the new fields since they read from serverConfig
-          # under their legacy names. Defaults are conservative: one bootstrap
-          # server with k3s+flannel, manual certs, CIDRs mirror nixos-k8s.
-          nodeName = rawConfig.serverName;
+      # Project the homelab config onto the multi-node schema that nixos-k8s
+      # modules (k3s, metallb, traefik, cert-manager, ...) expect. Defaults
+      # are conservative: k3s+flannel, ACME certs, CIDRs mirror nixos-k8s.
+      serverConfig = rawConfig // {
+        kubernetes = {
+          engine = "k3s";
+          cni = "flannel";
+          podCidr = "10.42.0.0/16";
+          serviceCidr = "10.43.0.0/16";
+        } // (rawConfig.kubernetes or { });
 
-          syntheticNode = {
-            ip = rawConfig.serverIP;
-            role = "server";
-            bootstrap = true;
-          };
+        certificates = {
+          provider = "acme";
+        } // (rawConfig.certificates or { });
+      };
 
-          serverConfig = rawConfig // {
-            nodes = rawConfig.nodes or { ${nodeName} = syntheticNode; };
+      bootstrapName = builtins.head (
+        builtins.attrNames (nixpkgs.lib.filterAttrs (_: n: n.bootstrap or false) serverConfig.nodes)
+      );
 
-            kubernetes = {
-              engine = "k3s";
-              cni = "flannel";
-              podCidr = "10.42.0.0/16";
-              serviceCidr = "10.43.0.0/16";
-            } // (rawConfig.kubernetes or { });
-
-            certificates = {
-              provider = "acme";
-            } // (rawConfig.certificates or { });
-          };
-
-          bootstrapEntry = nixpkgs.lib.findFirst (n: n.bootstrap or false) syntheticNode (
-            nixpkgs.lib.attrValues serverConfig.nodes
-          );
-
-          nodeConfig = serverConfig.nodes.${nodeName} // {
-            name = nodeName;
-            bootstrapIP = bootstrapEntry.ip;
-          };
-
-          clusterNodes = nixpkgs.lib.mapAttrsToList (name: cfg: cfg // { inherit name; }) serverConfig.nodes;
-        in
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = {
-            inherit
-              inputs
-              serverConfig
-              secretsPath
-              nixos-k8s
-              nodeConfig
-              clusterNodes
-              ;
-          };
-          modules = [
-            disko.nixosModules.disko
-            agenix.nixosModules.default
-            ./hosts/${hostName}
-            ./modules/core
-            ./modules/services
-            ./modules/kubernetes
-          ];
-        };
+      # Delegate cluster build to nixos-k8s. Upstream loads its own
+      # modules/{core,services,kubernetes}; homelab adds its layer via extraModules.
+      clusterConfigs = nixos-k8s.lib.mkCluster {
+        clusterConfig = serverConfig;
+        hostsPath = "${self}/hosts";
+        inherit secretsPath;
+        extraSpecialArgs = { inherit nixos-k8s; };
+        extraModules = [
+          ./modules/core
+          ./modules/services
+          ./modules/kubernetes
+        ];
+      };
     in
     {
-      nixosConfigurations.homelab = mkHost "default";
+      nixosConfigurations = clusterConfigs // {
+        # Backwards-compat alias: `nixos-rebuild --flake .#homelab` still works
+        homelab = clusterConfigs.${bootstrapName};
+      };
 
       formatter.${system} = pkgs.nixfmt-rfc-style;
 
@@ -136,10 +108,7 @@
         ];
         shellHook = ''
           echo "NixOS Homelab - Dev Shell"
-          echo "Commands:"
-          echo "  ./scripts/setup.sh   - Initial configuration"
-          echo "  ./scripts/install.sh - Install on server (FORMATS DISK)"
-          echo "  ./scripts/update.sh  - Update configuration"
+          echo "Commands: run 'make help' to list targets"
         '';
       };
     };

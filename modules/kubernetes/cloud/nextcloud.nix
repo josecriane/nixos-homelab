@@ -3,6 +3,7 @@
   lib,
   pkgs,
   serverConfig,
+  nodeConfig,
   nixos-k8s,
   ...
 }:
@@ -11,7 +12,7 @@ let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "nextcloud";
   markerFile = "/var/lib/nextcloud-setup-done";
-  ipParts = lib.splitString "." serverConfig.serverIP;
+  ipParts = lib.splitString "." nodeConfig.ip;
   lanSubnet = "${builtins.elemAt ipParts 0}.${builtins.elemAt ipParts 1}.${builtins.elemAt ipParts 2}.0/24";
 
   # Find NAS with cloudPaths.nextcloud for PV fallback creation

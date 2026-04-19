@@ -3,6 +3,7 @@
   lib,
   pkgs,
   serverConfig,
+  nodeConfig,
   secretsPath,
   inputs,
   ...
@@ -15,7 +16,7 @@
   ];
 
   # Hostname
-  networking.hostName = serverConfig.serverName;
+  networking.hostName = nodeConfig.name;
 
   # Local DNS cache (reduces load on Pi-hole)
   services.dnsmasq = {
@@ -38,14 +39,6 @@
     useNetworkd = true;
     nameservers = [ "127.0.0.1" ] ++ serverConfig.nameservers; # dnsmasq first
 
-    # Prefer IPv4 over IPv6 for outgoing connections
-    # Fixes issues with Docker/Helm when CDNs return IPv6 addresses
-    getaddrinfo.precedence = {
-      "::ffff:0:0/96" = 100; # IPv4 mapped addresses (highest priority)
-      "::1/128" = 50;
-      "::/0" = 40;
-    };
-
     # WiFi or Ethernet depending on configuration
     wireless = lib.mkIf serverConfig.useWifi {
       enable = true;
@@ -63,7 +56,7 @@
       if serverConfig.useWifi then
         {
           matchConfig.Name = "wlan0";
-          address = [ "${serverConfig.serverIP}/24" ];
+          address = [ "${nodeConfig.ip}/24" ];
           routes = [ { Gateway = serverConfig.gateway; } ];
           dns = serverConfig.nameservers;
           linkConfig.RequiredForOnline = "routable"; # Require routable state
@@ -72,7 +65,7 @@
         {
           # Match physical ethernet only (eno*, enp*, ens*), NOT veth* from CNI
           matchConfig.Name = "en*";
-          address = [ "${serverConfig.serverIP}/24" ];
+          address = [ "${nodeConfig.ip}/24" ];
           routes = [ { Gateway = serverConfig.gateway; } ];
           dns = serverConfig.nameservers;
           linkConfig.RequiredForOnline = "routable";

@@ -3,12 +3,13 @@
   lib,
   pkgs,
   serverConfig,
+  nodeConfig,
   secretsPath,
   ...
 }:
 
 let
-  ipParts = lib.splitString "." serverConfig.serverIP;
+  ipParts = lib.splitString "." nodeConfig.ip;
   lanSubnet = "${builtins.elemAt ipParts 0}.${builtins.elemAt ipParts 1}.${builtins.elemAt ipParts 2}.0/24";
 in
 {

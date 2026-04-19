@@ -8,5 +8,6 @@
 {
   imports = [
     ./tailscale.nix
+    ./omada-ports.nix
   ];
 }

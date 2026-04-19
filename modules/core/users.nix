@@ -1,124 +1,28 @@
+{ ... }:
+
 {
-  config,
-  lib,
-  pkgs,
-  serverConfig,
-  secretsPath,
-  ...
-}:
+  # Upstream's modules/core/users.nix is loaded by nixos-k8s.lib.mkCluster,
+  # so this file only overlays homelab-specific values on top.
 
-let
-  adminPasswordFile = "${secretsPath}/admin-password-hash.age";
-  hasAdminPassword = builtins.pathExists adminPasswordFile;
-in
-{
-  age.secrets.admin-password-hash = lib.mkIf hasAdminPassword {
-    file = adminPasswordFile;
-  };
+  k8s.users = {
+    kubectlSetenv = true;
 
-  # Agenix decrypts secrets in an activation script that by default runs AFTER
-  # the users activation. hashedPasswordFile would then read a non-existent file
-  # and the account gets locked with '!' in /etc/shadow. Force users to wait.
-  system.activationScripts.users.deps = lib.mkIf hasAdminPassword [ "agenixInstall" ];
+    extraSudoCommands = [
+      # Homelab uses a second marker suffix (config-done) for service config reruns.
+      { command = "/run/current-system/sw/bin/rm -f /var/lib/*-config-done"; options = [ "NOPASSWD" ]; }
 
-  # Make user management fully declarative so hashedPasswordFile is re-applied
-  # on every activation (with mutableUsers=true it only applies at first create).
-  users.mutableUsers = !hasAdminPassword;
+      { command = "/run/current-system/sw/bin/systemctl start mnt-*.mount"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/systemctl stop mnt-*.mount"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/systemctl restart mnt-*.mount"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/systemctl start service-scaledown.service"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/systemctl restart service-scaledown.service"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/systemctl start nfs-heal.service"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/systemctl status nfs-heal.service"; options = [ "NOPASSWD" ]; }
 
-  users.users.${serverConfig.adminUser} = {
-    isNormalUser = true;
-    description = "Server Administrator";
-    extraGroups = [
-      "wheel"
-      "networkmanager"
-      "docker"
-    ];
-    openssh.authorizedKeys.keys = serverConfig.adminSSHKeys;
-    shell = pkgs.bash;
-  }
-  // lib.optionalAttrs hasAdminPassword {
-    hashedPasswordFile = config.age.secrets.admin-password-hash.path;
-  };
-
-  security.sudo = {
-    wheelNeedsPassword = hasAdminPassword;
-    extraRules = lib.optionals hasAdminPassword [
-      {
-        groups = [ "wheel" ];
-        commands = [
-          {
-            command = "/run/current-system/sw/bin/systemctl status *-setup.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl restart *-setup.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl start *-setup.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl stop *-setup.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/journalctl";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/rm -f /var/lib/*-setup-done";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/rm -f /var/lib/*-config-done";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl start mnt-*.mount";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl stop mnt-*.mount";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl restart mnt-*.mount";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl start service-scaledown.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl restart service-scaledown.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl start nfs-heal.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/systemctl status nfs-heal.service";
-            options = [ "NOPASSWD" ];
-          }
-          {
-            command = "/run/current-system/sw/bin/kubectl";
-            options = [
-              "NOPASSWD"
-              "SETENV"
-            ];
-          }
-          # TEMP: full NOPASSWD while admin is away (revert before end of day)
-          {
-            command = "ALL";
-            options = [ "NOPASSWD" ];
-          }
-        ];
-      }
+      # Backup wrappers defined by modules/kubernetes/backup/restic.nix.
+      { command = "/run/current-system/sw/bin/backup-now"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/backup-status"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/backup-restore"; options = [ "NOPASSWD" ]; }
     ];
   };
-
-  # Disable root login
-  users.users.root.hashedPassword = "!";
 }

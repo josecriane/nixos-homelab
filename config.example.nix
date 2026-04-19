@@ -1,6 +1,13 @@
 {
-  serverName = "my-server";
-  serverIP = "192.168.1.100";
+  # Cluster nodes (keyed by hostname)
+  nodes = {
+    my-server = {
+      ip = "192.168.1.100";
+      role = "server";
+      bootstrap = true;
+    };
+  };
+
   gateway = "192.168.1.1";
   nameservers = [
     "1.1.1.1"
@@ -38,6 +45,18 @@
   authentik = {
     adminEmail = "admin@home.example.com";
     # ldap = { enable = false; };
+
+    # Declarative bootstrap users. Each user is created via the Authentik API
+    # with the password read from agenix. The key name is the username. Store
+    # each password under secrets/<passwordSecret>.age.
+    # bootstrapUsers = {
+    #   jose = {
+    #     email = "jose@example.com";
+    #     name = "Jose";
+    #     groups = [ "admins" "media-admins" "media-users" "monitoring" ];
+    #     passwordSecret = "authentik-user-jose-password";
+    #   };
+    # };
   };
 
   # NAS integration (or use setup.sh to configure interactively)

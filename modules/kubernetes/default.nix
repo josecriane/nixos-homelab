@@ -3,7 +3,6 @@
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
@@ -15,17 +14,15 @@ let
     (builtins.length (builtins.attrNames (lib.filterAttrs (_: c: c.enabled or false) nas))) > 0;
 in
 {
+  # Upstream's modules/kubernetes/default.nix (loaded by nixos-k8s.lib.mkCluster)
+  # already provides K3s, MetalLB, Traefik, cert-manager, NFS mounts, cleanup,
+  # nfs-storage and systemd-targets. Homelab only adds its own services on top.
   imports = [
-    "${nixos-k8s}/modules/kubernetes/systemd-targets.nix"
-    "${nixos-k8s}/modules/kubernetes/infrastructure/k3s.nix"
-    "${nixos-k8s}/modules/kubernetes/infrastructure/metallb.nix"
-    "${nixos-k8s}/modules/kubernetes/infrastructure/traefik.nix"
-    "${nixos-k8s}/modules/kubernetes/infrastructure/traefik-dashboard.nix"
-    "${nixos-k8s}/modules/kubernetes/infrastructure/cert-manager.nix"
-    "${nixos-k8s}/modules/kubernetes/infrastructure/cleanup.nix"
-    "${nixos-k8s}/modules/kubernetes/infrastructure/nfs-mounts.nix"
+    # Homelab-specific overlay: configures upstream nfs-storage + adds cloud PVs.
     ./infrastructure/nfs-storage.nix
-    ./infrastructure/cleanup.nix
+    ./infrastructure/nfs-storage-cloud.nix
+    ./infrastructure/cleanup-services.nix
+
     ./backup/restic.nix
 
     # Auth
@@ -75,6 +72,9 @@ in
   # Hardware/config-dependent modules stay conditional
   ++ lib.optionals ((enabled "authentik") && (serverConfig.authentik.ldap.enable or false)) [
     ./auth/ldap.nix
+  ]
+  ++ lib.optionals ((enabled "authentik") && (serverConfig.authentik.bootstrapUsers or { }) != { }) [
+    ./auth/authentik-users.nix
   ]
   ++ lib.optionals ((enabled "authentik") && anyNas) [
     ./auth/nas-apps.nix
