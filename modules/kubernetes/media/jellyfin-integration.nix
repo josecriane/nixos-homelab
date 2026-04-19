@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/jellyfin-integration-setup-done";
   curl = "curl";
@@ -17,12 +18,12 @@ in
   systemd.services.jellyfin-integration-setup = {
     description = "Configure Jellyfin API key, Jellyseerr initialization, and Jellyfin notifications";
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "arr-credentials-setup.service"
       "arr-download-clients-setup.service"
       "recyclarr-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "arr-credentials-setup.service"
       "arr-download-clients-setup.service"

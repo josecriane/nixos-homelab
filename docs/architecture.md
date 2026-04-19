@@ -20,7 +20,7 @@ Services start in a defined order to avoid resource contention:
 1. **k3s-infrastructure** - K3s, MetalLB, Traefik, cert-manager, NFS storage
 2. **k3s-storage** - PVCs, shared-data setup
 3. **k3s-core** - Authentik, monitoring, Vaultwarden, dashboard
-4. **k3s-media** - Jellyfin, arr-stack, Bazarr, Lidarr, Bookshelf, Kavita
+4. **k3s-apps** - Jellyfin, arr-stack, Bazarr, Lidarr, Bookshelf, Kavita
 5. **k3s-extras** - Syncthing, Immich, Kiwix, arr connections, OIDC config
 
 Each tier is a systemd target. Services declare `wantedBy` and `before` on their tier target.

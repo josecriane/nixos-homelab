@@ -3,12 +3,13 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   secretsPath,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "vaultwarden";
   markerFile = "/var/lib/vaultwarden-admin-setup-done";
   credSecretName = "vaultwarden-admin-credentials";
@@ -26,11 +27,11 @@ in
   systemd.services.vaultwarden-admin-setup = {
     description = "Setup Vaultwarden admin user and organization";
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "vaultwarden-setup.service"
     ];
     requires = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "vaultwarden-setup.service"
     ];
     # TIER 5: Extras

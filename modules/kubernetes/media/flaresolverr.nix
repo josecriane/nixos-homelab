@@ -5,11 +5,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/flaresolverr-setup-done";
 in
@@ -21,8 +22,8 @@ in
       "nfs-storage-setup.service"
     ];
     requires = [ "k3s-storage.target" ];
-    wantedBy = [ "k3s-media.target" ];
-    before = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
+    before = [ "k3s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -32,7 +33,7 @@ in
                 setup_preamble "${markerFile}" "FlareSolverr"
 
                 wait_for_k3s
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
 
                 cat <<EOF | $KUBECTL apply -f -
         apiVersion: apps/v1

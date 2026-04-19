@@ -1,53 +1,39 @@
-# NFS Storage Integration for Media Services
-# Mounts NAS at /mnt/nas1 via system fileSystems, then uses hostPath PVs
-# Follows TRaSH Guides structure: /data/torrents/* and /data/media/*
+# Homelab NFS storage: shared-data PVC (TRaSH Guides layout) + cloud PVs.
+# Mounts, rpcbind and nfs-heal come from nixos-k8s/infrastructure/nfs-mounts.nix.
 {
   config,
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/nfs-storage-setup-done";
 
-  # Check if NFS storage is enabled
   useNFS = serverConfig.storage.useNFS or false;
 
-  # Get primary NAS configuration (first enabled NAS with media role)
   enabledNas = lib.filterAttrs (name: cfg: cfg.enabled or false) (serverConfig.nas or { });
   mediaNas = lib.findFirst (
     cfg: (cfg.role or "all") == "media" || (cfg.role or "all") == "all"
   ) null (lib.attrValues enabledNas);
-
-  # NFS server IP
   nfsServer = if mediaNas != null then mediaNas.ip else "";
-  nfsExports = if mediaNas != null then (mediaNas.nfsExports or { }) else { };
 
-  # NFSv4 path: if using fsid=0 on NAS, use "/" as the mount path
-  nfsPath = nfsExports.nfsPath or "/";
-
-  # Secondary NAS configs (have mediaPaths for bind-mounting into primary NAS tree)
   secondaryNasList = lib.filter (
     cfg: (cfg.enabled or false) && (cfg.mediaPaths or [ ]) != [ ] && cfg != mediaNas
   ) (lib.attrValues (serverConfig.nas or { }));
 
-  # NAS configs with cloudPaths (for cloud service PVs)
   cloudNasList = lib.filter (cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) != { }) (
     lib.attrValues (serverConfig.nas or { })
   );
 
-  # Host paths
   nasMountPoint = "/mnt/nas1";
   localDataPath = "/var/lib/media-data";
-
-  # The actual data path used by PVs (NAS mount or local)
   hostDataPath = if useNFS then nasMountPoint else localDataPath;
 
-  # Systemd mount unit names for secondary NAS mounts and their bind mounts
   pathToMountUnit =
     path: (builtins.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" path)) + ".mount";
 
@@ -56,122 +42,8 @@ let
     [ (pathToMountUnit "/mnt/${nasCfg.hostname}") ]
     ++ map (path: pathToMountUnit "${nasMountPoint}/${path}") nasCfg.mediaPaths
   ) secondaryNasList;
-
 in
 {
-  # Enable NFS client support
-  boot.supportedFilesystems = lib.mkIf useNFS [
-    "nfs"
-    "nfs4"
-  ];
-  services.rpcbind.enable = lib.mkIf useNFS true;
-
-  # Mount NAS at /mnt/nas1 (nofail so boot continues if NAS is down)
-  fileSystems = lib.mkIf useNFS (
-    {
-      ${nasMountPoint} = {
-        device = "${nfsServer}:${nfsPath}";
-        fsType = "nfs4";
-        options = [
-          "rw"
-          "noatime"
-          "nodiratime"
-          "soft"
-          "timeo=50"
-          "retrans=3"
-          "_netdev"
-          "nofail"
-          "x-systemd.automount"
-          "x-systemd.mount-timeout=30"
-          "x-systemd.idle-timeout=0"
-        ];
-      };
-    }
-    # Secondary NAS mounts + bind mounts into primary NAS tree
-    // lib.foldl' (
-      acc: nasCfg:
-      let
-        nasMount = "/mnt/${nasCfg.hostname}";
-        nasNfsPath = (nasCfg.nfsExports or { }).nfsPath or "/";
-      in
-      acc
-      // {
-        ${nasMount} = {
-          device = "${nasCfg.ip}:${nasNfsPath}";
-          fsType = "nfs4";
-          options = [
-            "rw"
-            "noatime"
-            "nodiratime"
-            "soft"
-            "timeo=50"
-            "retrans=3"
-            "_netdev"
-            "nofail"
-            "x-systemd.automount"
-            "x-systemd.mount-timeout=30"
-            "x-systemd.idle-timeout=0"
-          ];
-        };
-      }
-      // lib.foldl' (
-        a: path:
-        a
-        // {
-          "${nasMountPoint}/${path}" = {
-            device = "${nasMount}/${path}";
-            options = [
-              "bind"
-              "_netdev"
-              "nofail"
-            ];
-            depends = [
-              nasMountPoint
-              nasMount
-            ];
-          };
-        }
-      ) { } nasCfg.mediaPaths
-    ) { } secondaryNasList
-  );
-
-  # Auto-heal stale NFS handles: NAS reboots leave cached file handles invalid
-  # on the client side, surfacing as "Stale file handle" on stat/mkdir. A periodic
-  # check stats each NFS mount with a short timeout and restarts its mount unit
-  # on failure. Only enabled when NFS storage is in use.
-  systemd.services.nfs-heal = lib.mkIf useNFS {
-    description = "Detect and heal stale NFS mounts";
-    serviceConfig = {
-      Type = "oneshot";
-    };
-    path = [
-      pkgs.util-linux
-      pkgs.coreutils
-      pkgs.systemd
-    ];
-    script = ''
-      set -u
-      findmnt -l -t nfs,nfs4 -n -o TARGET | while read -r target; do
-        case "$target" in /mnt/*) ;; *) continue ;; esac
-        if ! timeout 3 stat "$target" >/dev/null 2>&1; then
-          unit=$(systemd-escape --path --suffix=mount "$target")
-          echo "Stale NFS mount: $target, restarting $unit"
-          systemctl restart "$unit" || echo "  failed to restart $unit"
-        fi
-      done
-    '';
-  };
-
-  systemd.timers.nfs-heal = lib.mkIf useNFS {
-    description = "Periodic NFS stale-handle healing";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnBootSec = "5m";
-      OnUnitActiveSec = "5m";
-      AccuracySec = "30s";
-    };
-  };
-
   systemd.services.nfs-storage-setup = {
     description = "Setup storage for media services";
     after = [
@@ -192,17 +64,16 @@ in
 
                 setup_preamble "${markerFile}" "NFS Storage"
                 wait_for_k3s
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
 
                 USE_NFS="${if useNFS then "true" else "false"}"
                 HOST_DATA_PATH="${hostDataPath}"
 
-                echo "Storage mode: $([ "$USE_NFS" = "true" ] && echo "NFS (${nfsServer} → ${nasMountPoint})" || echo "Local ($HOST_DATA_PATH)")"
+                echo "Storage mode: $([ "$USE_NFS" = "true" ] && echo "NFS (${nfsServer} -> ${nasMountPoint})" || echo "Local ($HOST_DATA_PATH)")"
 
                 ${
                   if useNFS then
                     ''
-                      # Verify NAS mount is available
                       MOUNTPOINT="${pkgs.util-linux}/bin/mountpoint"
                       if ! $MOUNTPOINT -q "${nasMountPoint}"; then
                         echo "WARN: ${nasMountPoint} not mounted, attempting to mount..."
@@ -220,7 +91,7 @@ in
                     ""
                 }
 
-                # Create directory structure
+                # TRaSH Guides directory layout
                 echo "Creating TRaSH Guides directory structure..."
                 mkdir -p "$HOST_DATA_PATH/torrents/movies"
                 mkdir -p "$HOST_DATA_PATH/torrents/tv"
@@ -234,14 +105,14 @@ in
                 mkdir -p "$HOST_DATA_PATH/media/music"
                 mkdir -p "$HOST_DATA_PATH/media/books"
                 mkdir -p "$HOST_DATA_PATH/backups"
-                # Set permissions on top-level directories only (recursive ops are too slow over NFS)
+                # Only top-level chmod (recursive chmod is too slow over NFS)
                 chmod 775 "$HOST_DATA_PATH/torrents" "$HOST_DATA_PATH/media" 2>/dev/null || true
                 for d in "$HOST_DATA_PATH"/torrents/* "$HOST_DATA_PATH"/media/*; do
                   [ -d "$d" ] && chmod 775 "$d" 2>/dev/null || true
                 done
                 echo "Directory structure created at $HOST_DATA_PATH"
 
-                # Create PV + PVC if not already Bound
+                # shared-data PV/PVC in media namespace (ReadWriteMany)
                 EXISTING_STATUS=$($KUBECTL get pvc shared-data -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
                 if [ "$EXISTING_STATUS" = "Bound" ]; then
                   echo "PV/PVC shared-data already exists and is Bound, skipping creation"
@@ -286,7 +157,6 @@ in
         PVEOF
                   echo "PV/PVC shared-data created (hostPath: $HOST_DATA_PATH)"
 
-                  # Wait for PVC to be Bound
                   echo "Waiting for PVC shared-data to be Bound..."
                   for i in $(seq 1 30); do
                     STATUS=$($KUBECTL get pvc shared-data -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
@@ -316,7 +186,6 @@ in
                                 # Cloud PV: ${service} -> ${hostPath}
                                 mkdir -p "${hostPath}" 2>/dev/null || true
                                 chmod 777 "${hostPath}" 2>/dev/null || true
-                                # Nextcloud runs as www-data (uid 33)
                                 if [ "${service}" = "nextcloud" ]; then
                                   chown 33:33 "${hostPath}" 2>/dev/null || true
                                 fi

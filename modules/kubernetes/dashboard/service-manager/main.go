@@ -481,11 +481,44 @@ func findWorkloadKind(ns, name string) string {
 	return "Deployment"
 }
 
+// PausedAnnotation marks a workload as user-paused so setup services don't
+// resurrect it on rebuild. `service-scaledown` honors it.
+const PausedAnnotation = "homelab.k8s/user-paused"
+
+func patchPausedAnnotation(ns, resource, name string, paused bool) error {
+	var value string
+	if paused {
+		value = `"true"`
+	} else {
+		value = "null"
+	}
+	payload := fmt.Sprintf(`{"metadata":{"annotations":{"%s":%s}}}`, PausedAnnotation, value)
+	resp, err := k8sRequest("PATCH",
+		fmt.Sprintf("/apis/apps/v1/namespaces/%s/%s/%s", ns, resource, name),
+		strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("annotation patch error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("annotation failed (%d): %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 func scaleDeployment(ns, name string, replicas int) error {
 	kind := findWorkloadKind(ns, name)
 
 	mu.Lock()
 	defer mu.Unlock()
+
+	resource := "deployments"
+	if kind == "StatefulSet" {
+		resource = "statefulsets"
+	} else if kind == "DaemonSet" {
+		resource = "daemonsets"
+	}
 
 	if kind == "DaemonSet" {
 		var payload string
@@ -506,10 +539,6 @@ func scaleDeployment(ns, name string, replicas int) error {
 			return fmt.Errorf("scale failed (%d): %s", resp.StatusCode, string(body))
 		}
 	} else {
-		resource := "deployments"
-		if kind == "StatefulSet" {
-			resource = "statefulsets"
-		}
 		payload := fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas)
 		resp, err := k8sRequest("PATCH",
 			fmt.Sprintf("/apis/apps/v1/namespaces/%s/%s/%s/scale", ns, resource, name),
@@ -522,6 +551,10 @@ func scaleDeployment(ns, name string, replicas int) error {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("scale failed (%d): %s", resp.StatusCode, string(body))
 		}
+	}
+
+	if err := patchPausedAnnotation(ns, resource, name, replicas == 0); err != nil {
+		log.Printf("Service %s/%s annotation update failed: %v", ns, name, err)
 	}
 
 	action := "stopped"

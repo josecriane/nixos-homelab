@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "nas";
   markerFile = "/var/lib/nas-integration-setup-done";
 
@@ -147,10 +148,10 @@ lib.mkIf anyNasEnabled {
     description = "Setup NAS integration with Traefik and Authentik";
     # After media
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [ "authentik-sso-setup.service" ];
     wantedBy = [ "k3s-extras.target" ];
     before = [ "k3s-extras.target" ];
@@ -167,7 +168,7 @@ lib.mkIf anyNasEnabled {
         wait_for_certificate
 
         # Setup namespace
-        setup_namespace "${ns}"
+        ensure_namespace "${ns}"
 
         # ============================================
         # MULTI-NAS CONFIGURATION

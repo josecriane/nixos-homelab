@@ -3,6 +3,7 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
@@ -15,11 +16,14 @@ let
 in
 {
   imports = [
-    ./systemd-targets.nix
-    ./infrastructure/k3s.nix
-    ./infrastructure/metallb.nix
-    ./infrastructure/traefik.nix
-    ./infrastructure/cert-manager.nix
+    "${nixos-k8s}/modules/kubernetes/systemd-targets.nix"
+    "${nixos-k8s}/modules/kubernetes/infrastructure/k3s.nix"
+    "${nixos-k8s}/modules/kubernetes/infrastructure/metallb.nix"
+    "${nixos-k8s}/modules/kubernetes/infrastructure/traefik.nix"
+    "${nixos-k8s}/modules/kubernetes/infrastructure/traefik-dashboard.nix"
+    "${nixos-k8s}/modules/kubernetes/infrastructure/cert-manager.nix"
+    "${nixos-k8s}/modules/kubernetes/infrastructure/cleanup.nix"
+    "${nixos-k8s}/modules/kubernetes/infrastructure/nfs-mounts.nix"
     ./infrastructure/nfs-storage.nix
     ./infrastructure/cleanup.nix
     ./backup/restic.nix

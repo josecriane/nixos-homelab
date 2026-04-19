@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/arr-stack-setup-done";
 in
@@ -25,8 +26,8 @@ in
       "arr-secrets-setup.service"
     ];
     # TIER 4: Media
-    wantedBy = [ "k3s-media.target" ];
-    before = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
+    before = [ "k3s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -39,7 +40,7 @@ in
                 wait_for_traefik
                 wait_for_certificate
 
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
                 wait_for_shared_data "${ns}"
 
                 # Create config PVCs (shared-data is created by nfs-storage-setup)

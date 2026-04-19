@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/arr-credentials-setup-done";
 in
@@ -16,11 +17,11 @@ in
     description = "Setup credentials for arr-stack and media services";
     # After Tier 4 Media
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "arr-stack-setup.service"
       "arr-secrets-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "arr-stack-setup.service"
       "arr-secrets-setup.service"

@@ -4,11 +4,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "service-manager";
   markerFile = "/var/lib/service-manager-setup-done";
 
@@ -97,12 +98,13 @@ in
         RemainAfterExit = true;
         ExecStart = pkgs.writeShellScript "service-manager-setup" ''
                   ${k8s.libShSource}
-                  setup_preamble "${markerFile}" "Service Manager"
+                  IMAGE_HASH="${serviceManagerImage}"
+                  setup_preamble_hash "${markerFile}" "Service Manager" "$IMAGE_HASH"
 
                   wait_for_k3s
                   wait_for_traefik
                   wait_for_certificate
-                  setup_namespace "${ns}"
+                  ensure_namespace "${ns}"
 
                   # Import container image
                   echo "Importing Service Manager image..."
@@ -209,23 +211,47 @@ in
 
                   wait_for_deployment "${ns}" "service-manager" 120
 
+                  # Force rollout to pick up new image (same :latest tag)
+                  echo "Rolling out service-manager to pick up new image..."
+                  $KUBECTL rollout restart deployment/service-manager -n ${ns}
+                  $KUBECTL rollout status deployment/service-manager -n ${ns} --timeout=120s
+
                   # IngressRoute: UI + read API (no auth)
                   create_ingress_route "service-manager" "${ns}" "$(hostname services)" "service-manager" "8080"
 
                   print_success "Service Manager" \
                     "URL: https://$(hostname services)"
 
-                  create_marker "${markerFile}"
+                  create_marker "${markerFile}" "$IMAGE_HASH"
         '';
       };
     };
   }
   // lib.optionalAttrs (disabledNamespaces != [ ]) {
-    service-scaledown = {
-      description = "Scale down disabled services";
-      after = [ "k3s-extras.target" ];
-      requires = [ "k3s-extras.target" ];
-      wantedBy = [ "multi-user.target" ];
+    service-scaledown =
+      let
+        # Setup services that provision k8s workloads; scaledown must run after them
+        # so helm/kubectl apply doesn't resurrect replicas after we've scaled to 0.
+        setupServices = lib.attrNames (
+          lib.filterAttrs (
+            n: svc:
+            n != "service-scaledown"
+            && builtins.any (t: lib.hasPrefix "k3s-" t) (svc.wantedBy or [ ])
+          ) config.systemd.services
+        );
+        setupUnits = map (n: "${n}.service") setupServices;
+      in
+      {
+        description = "Scale down disabled services";
+        after = [ "k3s-extras.target" ] ++ setupUnits;
+        requires = [ "k3s-extras.target" ];
+        wantedBy = [ "multi-user.target" ];
+
+        # Re-run on every rebuild that touches a setup script or toggles a flag
+        restartTriggers = [
+          (builtins.toJSON (serverConfig.services or { }))
+        ]
+        ++ (map (n: config.systemd.services.${n}.serviceConfig.ExecStart or "") setupServices);
 
       serviceConfig = {
         Type = "oneshot";
@@ -244,6 +270,30 @@ in
               $KUBECTL patch "$ds" -n ${namespace} -p '{"spec":{"template":{"spec":{"nodeSelector":{"non-existing":"true"}}}}}' 2>/dev/null || true
             done
           '') disabledNamespaces}
+
+          echo "Enforcing user-paused annotation across all namespaces..."
+          # Deployments / StatefulSets: scale to 0 if user-paused
+          for kind in deployments statefulsets; do
+            $KUBECTL get "$kind" -A -o json 2>/dev/null | $JQ -r \
+              '.items[] | select(.metadata.annotations["homelab.k8s/user-paused"] == "true")
+               | "\(.metadata.namespace) \(.metadata.name)"' | \
+            while read -r ns name; do
+              [ -z "$ns" ] && continue
+              echo "Preserving paused: $kind $ns/$name"
+              $KUBECTL scale "$kind/$name" -n "$ns" --replicas=0 2>/dev/null || true
+            done
+          done
+          # DaemonSets: pin to non-existing node selector if user-paused
+          $KUBECTL get daemonsets -A -o json 2>/dev/null | $JQ -r \
+            '.items[] | select(.metadata.annotations["homelab.k8s/user-paused"] == "true")
+             | "\(.metadata.namespace) \(.metadata.name)"' | \
+          while read -r ns name; do
+            [ -z "$ns" ] && continue
+            echo "Preserving paused: daemonset $ns/$name"
+            $KUBECTL patch "daemonset/$name" -n "$ns" \
+              -p '{"spec":{"template":{"spec":{"nodeSelector":{"non-existing":"true"}}}}}' 2>/dev/null || true
+          done
+
           echo "Scale-down complete"
         '';
       };

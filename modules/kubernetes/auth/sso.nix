@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "authentik";
   markerFile = "/var/lib/authentik-sso-setup-done";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
@@ -22,7 +23,7 @@ in
     ];
     requires = [ "k3s-core.target" ];
     wants = [ "authentik-setup.service" ];
-    wantedBy = [ "k3s-media.target" ]; # Ready before media starts
+    wantedBy = [ "k3s-apps.target" ]; # Ready before media starts
 
     serviceConfig = {
       Type = "oneshot";
@@ -224,7 +225,6 @@ in
                 JELLYSEERR_CLIENT_SECRET=$(get_existing JELLYSEERR_CLIENT_SECRET)
                 IMMICH_CLIENT_SECRET=$(get_existing IMMICH_CLIENT_SECRET)
                 VAULTWARDEN_CLIENT_SECRET=$(get_existing VAULTWARDEN_CLIENT_SECRET)
-                HOMARR_CLIENT_SECRET=$(get_existing HOMARR_CLIENT_SECRET)
                 KAVITA_CLIENT_SECRET=$(get_existing KAVITA_CLIENT_SECRET)
 
                 # Generate new secrets only for missing ones
@@ -234,7 +234,6 @@ in
                 [ -z "$JELLYSEERR_CLIENT_SECRET" ] && JELLYSEERR_CLIENT_SECRET=$(generate_hex 32)
                 [ -z "$IMMICH_CLIENT_SECRET" ] && IMMICH_CLIENT_SECRET=$(generate_hex 32)
                 [ -z "$VAULTWARDEN_CLIENT_SECRET" ] && VAULTWARDEN_CLIENT_SECRET=$(generate_hex 32)
-                [ -z "$HOMARR_CLIENT_SECRET" ] && HOMARR_CLIENT_SECRET=$(generate_hex 32)
                 [ -z "$KAVITA_CLIENT_SECRET" ] && KAVITA_CLIENT_SECRET=$(generate_hex 32)
 
                 # ============================================
@@ -404,10 +403,6 @@ in
                 create_oidc_app "Vaultwarden" "vaultwarden" "vaultwarden" "$VAULTWARDEN_CLIENT_SECRET" \
                   "https://vault.${domain}" \
                   "https://vault.${domain}/identity/connect/oidc-signin"
-
-                create_oidc_app "Homarr" "homarr" "homarr" "$HOMARR_CLIENT_SECRET" \
-                  "https://home.${domain}" \
-                  "https://home.${domain}/api/auth/callback/oidc"
 
                 create_oidc_app "Kavita" "kavita" "kavita" "$KAVITA_CLIENT_SECRET" \
                   "https://kavita.${domain}" \
@@ -624,14 +619,12 @@ in
           IMMICH_CLIENT_SECRET: "$IMMICH_CLIENT_SECRET"
           VAULTWARDEN_CLIENT_ID: "vaultwarden"
           VAULTWARDEN_CLIENT_SECRET: "$VAULTWARDEN_CLIENT_SECRET"
-          HOMARR_CLIENT_ID: "homarr"
-          HOMARR_CLIENT_SECRET: "$HOMARR_CLIENT_SECRET"
           KAVITA_CLIENT_ID: "kavita"
           KAVITA_CLIENT_SECRET: "$KAVITA_CLIENT_SECRET"
         EOF
 
                 # Copy to namespaces
-                for target_ns in monitoring nextcloud media immich vaultwarden homarr; do
+                for target_ns in monitoring nextcloud media immich vaultwarden; do
                   $KUBECTL create namespace $target_ns --dry-run=client -o yaml | $KUBECTL apply -f -
                   $KUBECTL get secret authentik-sso-credentials -n traefik-system -o json | \
                     $JQ 'del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.annotations)' | \
@@ -640,7 +633,7 @@ in
                 done
 
                 print_success "Authentik SSO" \
-                  "OIDC providers created for: Grafana, Nextcloud, Jellyfin, Jellyseerr, Immich, Vaultwarden, Homarr, Kavita" \
+                  "OIDC providers created for: Grafana, Nextcloud, Jellyfin, Jellyseerr, Immich, Vaultwarden, Kavita" \
                   "Credentials stored in K8s secret authentik-sso-credentials (traefik-system + copied to namespaces)" \
                   "Groups: admins, media-admins, media-users, family, monitoring"
 

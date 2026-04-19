@@ -62,7 +62,7 @@ All media services are enabled together with `media = true` in config.
 
 | Service | URL | What it does |
 |---------|-----|-------------|
-| [Homarr](https://homarr.dev/) | `home.*` | Application dashboard. Start page with links to all services and status indicators. |
+| [Homer](https://github.com/bastienwirtz/homer) | `home.*` | Application dashboard. Start page with links to all services. |
 | [Restic](https://restic.net/) | timers | Encrypted backups. Daily critical backups and weekly full backups to NAS. |
 
 ### Infrastructure (no UI)
@@ -272,7 +272,7 @@ flowchart TD
         monitoring["Monitoring<br/>Prometheus, Grafana, Alertmanager"]
         loki["Loki + Promtail"]
         vaultwarden["Vaultwarden"]
-        homarrsetup["Homarr"]
+        homer["Homer"]
     end
     T2 -.->|target| T3
     monitoring --> loki
@@ -322,7 +322,6 @@ flowchart TD
         immich["Immich<br/>server, ML, PostgreSQL, Redis"]
         immichoauth["immich-oauth"]
         syncthing["Syncthing"]
-        homcfg["homarr-config"]
         nasint["nas-integration"]
         kiwix["Kiwix"]
     end
@@ -334,7 +333,6 @@ flowchart TD
     sso --> ncoidc
     sso --> vwsso
     sso --> immichoauth
-    sso --> homcfg
     sso --> nasint
     arrstack --> arrcreds
     arrsecrets --> arrcreds
@@ -345,7 +343,6 @@ flowchart TD
     arrcreds --> lidcfg
     arrcreds --> bazcfg
     arrcreds --> jfint
-    arrcreds --> homcfg
     recyclarr --> arrnaming
     recyclarr --> jfint
     arrdl --> jfint
@@ -354,7 +351,6 @@ flowchart TD
     jellyseerr --> jsoidc
     monitoring --> grafoidc
     nextcloud --> ncoidc
-    homarrsetup --> homcfg
     vaultwarden --> vwadmin
     vwadmin --> vwsso
     vwadmin --> vwsync

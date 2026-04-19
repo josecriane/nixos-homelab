@@ -12,7 +12,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixos-k8s = {
-      url = "github:josecriane/nixos-k8s";
+      url = "path:/home/sito/dev/devops/nixos-k8s";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.disko.follows = "disko";
       inputs.agenix.follows = "agenix";
@@ -55,7 +55,47 @@
       mkHost =
         hostName:
         let
-          serverConfig = import configPath;
+          rawConfig = import configPath;
+
+          # Adapter: the single-host homelab config is projected onto the
+          # multi-node schema that nixos-k8s modules (k3s, metallb, traefik,
+          # cert-manager, ...) expect in specialArgs. Existing homelab
+          # modules ignore the new fields since they read from serverConfig
+          # under their legacy names. Defaults are conservative: one bootstrap
+          # server with k3s+flannel, manual certs, CIDRs mirror nixos-k8s.
+          nodeName = rawConfig.serverName;
+
+          syntheticNode = {
+            ip = rawConfig.serverIP;
+            role = "server";
+            bootstrap = true;
+          };
+
+          serverConfig = rawConfig // {
+            nodes = rawConfig.nodes or { ${nodeName} = syntheticNode; };
+
+            kubernetes = {
+              engine = "k3s";
+              cni = "flannel";
+              podCidr = "10.42.0.0/16";
+              serviceCidr = "10.43.0.0/16";
+            } // (rawConfig.kubernetes or { });
+
+            certificates = {
+              provider = "acme";
+            } // (rawConfig.certificates or { });
+          };
+
+          bootstrapEntry = nixpkgs.lib.findFirst (n: n.bootstrap or false) syntheticNode (
+            nixpkgs.lib.attrValues serverConfig.nodes
+          );
+
+          nodeConfig = serverConfig.nodes.${nodeName} // {
+            name = nodeName;
+            bootstrapIP = bootstrapEntry.ip;
+          };
+
+          clusterNodes = nixpkgs.lib.mapAttrsToList (name: cfg: cfg // { inherit name; }) serverConfig.nodes;
         in
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -65,6 +105,8 @@
               serverConfig
               secretsPath
               nixos-k8s
+              nodeConfig
+              clusterNodes
               ;
           };
           modules = [

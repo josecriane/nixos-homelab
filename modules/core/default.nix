@@ -13,7 +13,6 @@
     ./users.nix
     "${nixos-k8s}/modules/core/ssh.nix"
     ./security.nix
-    ./kdump.nix
   ];
 
   # Timezone and locale

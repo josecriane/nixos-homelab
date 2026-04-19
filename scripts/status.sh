@@ -66,10 +66,9 @@ ssh "$ADMIN_USER@$SERVER_IP" "
 
     echo ''
     echo '  Kubernetes PVCs:'
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    if command -v kubectl &>/dev/null && kubectl get pvc -A &>/dev/null 2>&1; then
-        kubectl get pvc -A --no-headers 2>/dev/null | awk '{printf \"    %-20s %-25s %s\\n\", \$1, \$2, \$4}' | head -15
-        PVC_COUNT=\$(kubectl get pvc -A --no-headers 2>/dev/null | wc -l)
+    if command -v kubectl &>/dev/null && sudo kubectl get pvc -A &>/dev/null 2>&1; then
+        sudo kubectl get pvc -A --no-headers 2>/dev/null | awk '{printf \"    %-20s %-25s %s\\n\", \$1, \$2, \$4}' | head -15
+        PVC_COUNT=\$(sudo kubectl get pvc -A --no-headers 2>/dev/null | wc -l)
         if [ \"\$PVC_COUNT\" -gt 15 ]; then
             echo \"    ... and \$((PVC_COUNT - 15)) more\"
         fi
@@ -113,22 +112,21 @@ echo ""
 echo -e "${YELLOW}Kubernetes:${NC}"
 if ssh "$ADMIN_USER@$SERVER_IP" "command -v kubectl &>/dev/null"; then
     ssh "$ADMIN_USER@$SERVER_IP" '
-        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         GREEN="\033[0;32m"
         YELLOW="\033[1;33m"
         RED="\033[0;31m"
         NC="\033[0m"
 
-        if kubectl get nodes &>/dev/null 2>&1; then
+        if sudo kubectl get nodes &>/dev/null 2>&1; then
             echo -e "  Cluster: ${GREEN}✓${NC}"
             echo ""
             echo "  Nodes:"
-            kubectl get nodes --no-headers | while read line; do
+            sudo kubectl get nodes --no-headers | while read line; do
                 echo "    $line"
             done
             echo ""
             echo "  Pods per namespace:"
-            kubectl get pods -A --no-headers 2>/dev/null | awk -v g="$GREEN" -v y="$YELLOW" -v nc="$NC" "{
+            sudo kubectl get pods -A --no-headers 2>/dev/null | awk -v g="$GREEN" -v y="$YELLOW" -v nc="$NC" "{
                 ns[\$1]++
                 if (\$4 == \"Running\" || \$4 == \"Completed\") running[\$1]++
             } END {
@@ -143,7 +141,7 @@ if ssh "$ADMIN_USER@$SERVER_IP" "command -v kubectl &>/dev/null"; then
             }" | sort
 
             # Problem pods
-            PROBLEM_PODS=$(kubectl get pods -A --no-headers 2>/dev/null | awk "\$4 != \"Running\" && \$4 != \"Completed\" {print \$1\"/\"\$2}")
+            PROBLEM_PODS=$(sudo kubectl get pods -A --no-headers 2>/dev/null | awk "\$4 != \"Running\" && \$4 != \"Completed\" {print \$1\"/\"\$2}")
             if [ -n "$PROBLEM_PODS" ]; then
                 echo ""
                 echo "  Problem pods:"

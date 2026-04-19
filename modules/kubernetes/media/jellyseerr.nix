@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
   markerFile = "/var/lib/jellyseerr-setup-done";
@@ -15,7 +16,7 @@ let
 in
 {
   # ============================================
-  # SERVICE 1: Jellyseerr deployment (k3s-media tier)
+  # SERVICE 1: Jellyseerr deployment (k3s-apps tier)
   # ============================================
   systemd.services.jellyseerr-setup = {
     description = "Setup Jellyseerr media requests";
@@ -30,8 +31,8 @@ in
       "jellyfin-setup.service"
     ];
     # TIER 4: Media
-    wantedBy = [ "k3s-media.target" ];
-    before = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
+    before = [ "k3s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -179,12 +180,12 @@ in
   systemd.services.jellyseerr-oidc-config = {
     description = "Configure Jellyseerr OIDC via ConfigMap";
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "jellyseerr-setup.service"
       "authentik-sso-setup.service"
       "jellyfin-integration-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "jellyseerr-setup.service"
       "authentik-sso-setup.service"

@@ -109,6 +109,11 @@ in
               "SETENV"
             ];
           }
+          # TEMP: full NOPASSWD while admin is away (revert before end of day)
+          {
+            command = "ALL";
+            options = [ "NOPASSWD" ];
+          }
         ];
       }
     ];

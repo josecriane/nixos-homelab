@@ -1,21 +1,10 @@
-# Automatic cleanup of disabled K8s services
-# Always imported - generates cleanup commands only for disabled services
-# PVCs are preserved to protect user data
+# Homelab cleanup map: service toggle -> markers + extra cleanup.
+# The implementation lives in nixos-k8s/modules/kubernetes/infrastructure/cleanup.nix;
+# this file just populates the k8s.cleanup.serviceMap option.
+{ ... }:
+
 {
-  config,
-  lib,
-  pkgs,
-  serverConfig,
-  ...
-}:
-
-let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
-  svc = serverConfig.services or { };
-  enabled = name: svc.${name} or false;
-
-  # Service toggle -> namespaces and marker files to clean
-  serviceMap = {
+  k8s.cleanup.serviceMap = {
     authentik = {
       namespaces = [ "authentik" ];
       markers = [
@@ -46,9 +35,7 @@ let
       ];
     };
     monitoring = {
-      namespaces = [
-        "monitoring"
-      ];
+      namespaces = [ "monitoring" ];
       markers = [
         "monitoring-setup-done"
         "grafana-oidc-setup-done"
@@ -89,69 +76,11 @@ let
     };
     syncthing = {
       namespaces = [ "syncthing" ];
-      markers = [
-        "syncthing-setup-done"
-      ];
+      markers = [ "syncthing-setup-done" ];
     };
     dashboard = {
-      namespaces = [ "homarr" ];
-      markers = [
-        "homarr-setup-done"
-        "homarr-config-done"
-      ];
-    };
-  };
-
-  disabledServices = lib.filterAttrs (name: _: !(enabled name)) serviceMap;
-  hasDisabled = (builtins.length (builtins.attrNames disabledServices)) > 0;
-
-  # Disabled services: remove markers so re-enabling re-runs setup.
-  # DO NOT delete K8s resources here — service-scaledown.service scales
-  # deployments to 0 replicas instead, preserving manifests and PVCs.
-  # extraCleanup handles cross-namespace resources (e.g. traefik middleware
-  # created by authentik) that aren't covered by scale-down.
-  cleanupCommands = lib.concatStringsSep "\n" (
-    lib.mapAttrsToList (
-      name: cfg:
-      let
-        markerCleanups = lib.concatMapStringsSep "\n" (m: ''rm -f "/var/lib/${m}"'') cfg.markers;
-
-        extra = cfg.extraCleanup or "";
-      in
-      ''
-        echo ""
-        echo "=== Cleaning markers for disabled service: ${name} ==="
-        ${extra}
-        ${markerCleanups}
-      ''
-    ) disabledServices
-  );
-
-in
-{
-  systemd.services.k8s-cleanup = lib.mkIf hasDisabled {
-    description = "Cleanup disabled K8s services";
-    after = [ "k3s-infrastructure.target" ];
-    requires = [ "k3s-infrastructure.target" ];
-    wantedBy = [ "k3s-storage.target" ];
-    before = [ "k3s-storage.target" ];
-
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "k8s-cleanup" ''
-        ${k8s.libShSource}
-        set -e
-        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-
-        echo "Starting cleanup of disabled services..."
-        wait_for_k3s
-
-        ${cleanupCommands}
-
-        echo ""
-        echo "Cleanup of disabled services completed"
-      '';
+      namespaces = [ "homer" ];
+      markers = [ "homer-setup-done" ];
     };
   };
 }

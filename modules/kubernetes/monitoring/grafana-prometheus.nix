@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "monitoring";
   markerFile = "/var/lib/monitoring-setup-done";
 in
@@ -32,7 +33,7 @@ in
         wait_for_certificate
 
         helm_repo_add "prometheus-community" "https://prometheus-community.github.io/helm-charts"
-        setup_namespace "${ns}"
+        ensure_namespace "${ns}"
 
         # Generate or reuse Grafana admin password
         GRAFANA_ADMIN_PASSWORD=$(get_secret_value "${ns}" "grafana-admin-credentials" "ADMIN_PASSWORD")
@@ -88,11 +89,11 @@ in
     description = "Configure Grafana OIDC with Authentik SSO";
     # After media (SSO already configured)
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "monitoring-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "monitoring-setup.service"
       "authentik-sso-setup.service"
