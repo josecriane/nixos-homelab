@@ -124,6 +124,87 @@ make check                  Build all node configs without deploying
 
 `NODE=` defaults to the node flagged `bootstrap = true`.
 
+## Use as a Nix library
+
+This flake exports `lib.mkHomelab` so you can keep `config.nix`, secrets, host definitions, and any custom modules in a separate (private) repository, without forking this one.
+
+Minimal consumer `flake.nix`:
+
+```nix
+{
+  inputs.nixos-homelab.url = "github:josecriane/nixos-homelab";
+
+  outputs =
+    { self, nixos-homelab, ... }:
+    let
+      cfg = import ./config.nix;
+      cluster = nixos-homelab.lib.mkHomelab {
+        clusterConfig = cfg;
+        hostsPath = "${self}/hosts";
+        secretsPath = ./secrets;
+        extraModules = [ ./modules ]; # optional
+      };
+      bootstrap = builtins.head (
+        builtins.filter (n: cfg.nodes.${n}.bootstrap or false)
+          (builtins.attrNames cfg.nodes)
+      );
+    in
+    {
+      nixosConfigurations = cluster // { homelab = cluster.${bootstrap}; };
+      devShells = nixos-homelab.devShells;
+      formatter = nixos-homelab.formatter;
+    };
+}
+```
+
+Consumer repo layout:
+
+```
+.
+├── flake.nix
+├── config.nix             # your values (see config.example.nix)
+├── hosts/<name>/          # default.nix, disk-config.nix, hardware-configuration.nix
+├── keys/admin.pub
+├── secrets/               # agenix-encrypted .age files + secrets.nix
+└── modules/               # optional: your own NixOS modules
+```
+
+`lib.mkHomelab` arguments:
+
+| Arg | Type | Required | Description |
+|-----|------|----------|-------------|
+| `clusterConfig` | attrset | yes | Parsed `config.nix` |
+| `hostsPath` | path | yes | Directory with `<name>/` per node |
+| `secretsPath` | path | yes | Directory with `.age` files and `secrets.nix` |
+| `extraModules` | list | no | Consumer-specific NixOS modules |
+| `extraSpecialArgs` | attrset | no | Extra args passed to every module |
+
+`nixos-k8s` is forwarded as a `specialArg`, so consumer modules can reuse the upstream bash helpers inside systemd oneshot services:
+
+```nix
+{ pkgs, serverConfig, nixos-k8s, ... }:
+let
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" {
+    inherit pkgs serverConfig;
+  };
+in
+{
+  systemd.services.my-service = {
+    # ...
+    serviceConfig.ExecStart = pkgs.writeShellScript "my-service" ''
+      ${k8s.libShSource}
+      setup_preamble "/var/lib/my-service-done" "My Service"
+      wait_for_k3s
+      ensure_namespace "my-ns"
+      create_ingress_route "my-app" "my-ns" "$(hostname my-app)" "my-app" "8080"
+      create_marker "/var/lib/my-service-done"
+    '';
+  };
+}
+```
+
+See [josecriane/nixos-k8s](https://github.com/josecriane/nixos-k8s) for the underlying cluster library and the full list of bash helpers (`setup_preamble`, `wait_for_k3s`, `create_ingress_route`, `create_pvc`, `helm_install`, etc.).
+
 ## Configuration
 
 All settings live in `config.nix` (see [config.example.nix](config.example.nix) for the full reference).
