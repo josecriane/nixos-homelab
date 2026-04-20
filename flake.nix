@@ -1,5 +1,5 @@
 {
-  description = "NixOS Homelab - Declarative K3s homelab on NixOS";
+  description = "NixOS Homelab - Declarative K3s homelab on NixOS (library flake)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -27,66 +27,88 @@
       ...
     }:
     let
-      # config.nix and secrets/ are gitignored, so we read them from
-      # the real filesystem using PWD (requires --impure)
-      projectDir = builtins.getEnv "PWD";
-      impureMsg = "Gitignored files not accessible; build with --impure (update.sh does this automatically)";
-      configPath = if projectDir != "" then "${projectDir}/config.nix" else throw impureMsg;
-      # builtins.path copies files to the nix store so they're available
-      # on the server after deployment (filter excludes private keys)
-      secretsPath =
-        if projectDir != "" then
-          builtins.path {
-            path = "${projectDir}/secrets";
-            name = "homelab-secrets";
-            filter = path: type: type == "regular";
-          }
-        else
-          throw impureMsg;
-
-      rawConfig = import configPath;
-
-      # Project the homelab config onto the multi-node schema that nixos-k8s
-      # modules (k3s, metallb, traefik, cert-manager, ...) expect. Defaults
-      # are conservative: k3s+flannel, ACME certs, CIDRs mirror nixos-k8s.
-      serverConfig = rawConfig // {
+      # Homelab defaults layered onto raw clusterConfig. Upstream modules
+      # are inconsistent about default cert provider (tls-secret.nix defaults
+      # to "manual" while traefik.nix defaults to "acme"), so pin "acme" here.
+      withHomelabDefaults = cfg: cfg // {
         kubernetes = {
           engine = "k3s";
           cni = "flannel";
           podCidr = "10.42.0.0/16";
           serviceCidr = "10.43.0.0/16";
         }
-        // (rawConfig.kubernetes or { });
-
+        // (cfg.kubernetes or { });
         certificates = {
           provider = "acme";
         }
-        // (rawConfig.certificates or { });
+        // (cfg.certificates or { });
       };
 
-      bootstrapName = builtins.head (
-        builtins.attrNames (nixpkgs.lib.filterAttrs (_: n: n.bootstrap or false) serverConfig.nodes)
-      );
+      mkHomelab =
+        {
+          clusterConfig,
+          hostsPath,
+          secretsPath,
+          extraModules ? [ ],
+          extraSpecialArgs ? { },
+        }:
+        nixos-k8s.lib.mkCluster {
+          clusterConfig = withHomelabDefaults clusterConfig;
+          inherit hostsPath secretsPath;
+          extraSpecialArgs = {
+            inherit nixos-k8s;
+          }
+          // extraSpecialArgs;
+          extraModules = [
+            "${self}/modules/core"
+            "${self}/modules/services"
+            "${self}/modules/kubernetes"
+          ]
+          ++ extraModules;
+        };
 
-      # Delegate cluster build to nixos-k8s. Upstream loads its own
-      # modules/{core,services,kubernetes}; homelab adds its layer via extraModules.
-      clusterConfigs = nixos-k8s.lib.mkCluster {
-        clusterConfig = serverConfig;
-        hostsPath = "${self}/hosts";
-        inherit secretsPath;
-        extraSpecialArgs = { inherit nixos-k8s; };
-        extraModules = [
-          ./modules/core
-          ./modules/services
-          ./modules/kubernetes
-        ];
+      bootstrapOf =
+        cfg:
+        builtins.head (
+          builtins.attrNames (nixpkgs.lib.filterAttrs (_: n: n.bootstrap or false) cfg.nodes)
+        );
+
+      hasLocalConfig = builtins.pathExists "${self}/config.nix";
+      projectDir = builtins.getEnv "PWD";
+      impureSecrets = builtins.path {
+        path = "${projectDir}/secrets";
+        name = "homelab-secrets";
+        filter = _: type: type == "regular";
       };
+
+      standaloneConfigs =
+        if hasLocalConfig then
+          let
+            cfg = import "${self}/config.nix";
+            c = mkHomelab {
+              clusterConfig = cfg;
+              hostsPath = "${self}/hosts";
+              secretsPath = "${self}/secrets";
+            };
+          in
+          c // { homelab = c.${bootstrapOf cfg}; }
+        else if projectDir != "" && builtins.pathExists "${projectDir}/config.nix" then
+          let
+            cfg = import "${projectDir}/config.nix";
+            c = mkHomelab {
+              clusterConfig = cfg;
+              hostsPath = "${self}/hosts";
+              secretsPath = impureSecrets;
+            };
+          in
+          c // { homelab = c.${bootstrapOf cfg}; }
+        else
+          { };
     in
     {
-      nixosConfigurations = clusterConfigs // {
-        # Backwards-compat alias: `nixos-rebuild --flake .#homelab` still works
-        homelab = clusterConfigs.${bootstrapName};
-      };
+      lib.mkHomelab = mkHomelab;
+
+      nixosConfigurations = standaloneConfigs;
 
       formatter = nixos-k8s.formatter;
 
