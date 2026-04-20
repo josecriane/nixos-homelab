@@ -62,7 +62,7 @@ All media services are enabled together with `media = true` in config.
 
 | Service | URL | What it does |
 |---------|-----|-------------|
-| [Homarr](https://homarr.dev/) | `home.*` | Application dashboard. Start page with links to all services and status indicators. |
+| [Homer](https://github.com/bastienwirtz/homer) | `home.*` | Application dashboard. Start page with links to all services. |
 | [Restic](https://restic.net/) | timers | Encrypted backups. Daily critical backups and weekly full backups to NAS. |
 
 ### Infrastructure (no UI)
@@ -90,13 +90,13 @@ cd nixos-homelab
 nix develop
 
 # Interactive wizard: configures network, services, secrets
-./scripts/setup.sh
+make setup
 
 # Install NixOS on the target machine (WARNING: formats disk)
-./scripts/install.sh
+make install NODE=<node-name>
 ```
 
-The setup wizard walks through every setting: network, domain, services to enable, NAS storage, credentials, and secrets. It generates `config.nix` and encrypts secrets with [agenix](https://github.com/ryantm/agenix).
+The setup wizard walks through every setting: network, domain, services to enable, NAS storage, credentials, and secrets. It generates `config.nix` and encrypts secrets with [agenix](https://github.com/ryantm/agenix). Under the hood, `make install` delegates to `nixos-k8s`'s installer using `nixos-anywhere`.
 
 You can also set things up manually:
 
@@ -106,13 +106,23 @@ cp secrets/secrets.example.nix secrets/secrets.nix
 # Edit both files, then encrypt secrets with agenix
 ```
 
-### Update
+### Common commands
 
-After changing `config.nix` or any module:
-
-```bash
-./scripts/update.sh
 ```
+make help                   List all available targets
+make deploy [NODE=<name>]   Apply config changes (no reinstall)
+make deploy-all             Deploy to every node
+make ssh [NODE=<name>]      SSH into a node
+make status                 Show cluster nodes and pods
+make logs [NODE=<name>]     Show K3s logs
+make reinstall SVC=<name>   Force re-run a setup service
+make backup-now             Trigger a Restic backup
+make backup-status          Show backup status
+make backup-restore         Interactive restore
+make check                  Build all node configs without deploying
+```
+
+`NODE=` defaults to the node flagged `bootstrap = true`.
 
 ## Configuration
 
@@ -172,12 +182,29 @@ Users are managed through [Authentik](https://goauthentik.io/), the identity pro
 
 ### Adding a new user
 
-1. Open `https://auth.<subdomain>.<domain>` and log in as `akadmin` (password is in the K8s secret `authentik-setup-credentials` in the `authentik` namespace, also stored in Vaultwarden).
-2. Go to **Admin Interface > Directory > Users > Create**.
-3. Fill in username, display name, email, and password.
-4. Assign the user to a group: go to **Directory > Groups**, open the group, go to the **Users** tab, and add the user.
+**Declarative (recommended).** Add the user to `authentik.bootstrapUsers` in `config.nix` and store their password as an agenix secret:
 
-The user can now log in to any OIDC-enabled service with their Authentik credentials.
+```nix
+authentik.bootstrapUsers = {
+  jose = {
+    email = "jose@example.com";
+    name = "Jose";
+    groups = [ "admins" "media-admins" "media-users" ];
+    passwordSecret = "authentik-user-jose-password";
+  };
+};
+```
+
+```bash
+agenix -e secrets/authentik-user-jose-password.age
+# Paste the password, save.
+```
+
+Then `make deploy`. The `authentik-bootstrap-users-setup` service creates the user via the API on first apply and re-runs automatically whenever the spec changes (users, groups, password file).
+
+Passwords are only set on first creation. To rotate afterwards, either delete the user in the Authentik UI and re-deploy, or change it from the user's account page.
+
+**Manual (ad-hoc).** Log in as `akadmin` at `https://auth.<subdomain>.<domain>` (password in the `authentik-setup-credentials` K8s secret / Vaultwarden), then **Admin Interface > Directory > Users > Create** and assign groups under **Directory > Groups**.
 
 ### Groups
 
@@ -234,7 +261,7 @@ agenix -e secrets/admin-password-hash.age
 # Paste the hash and save
 ```
 
-This is handled automatically if you run `./scripts/setup.sh`. The system detects whether the secret exists and adapts accordingly.
+This is handled automatically if you run `make setup`. The system detects whether the secret exists and adapts accordingly.
 
 ## Architecture
 
@@ -272,7 +299,7 @@ flowchart TD
         monitoring["Monitoring<br/>Prometheus, Grafana, Alertmanager"]
         loki["Loki + Promtail"]
         vaultwarden["Vaultwarden"]
-        homarrsetup["Homarr"]
+        homer["Homer"]
     end
     T2 -.->|target| T3
     monitoring --> loki
@@ -303,6 +330,7 @@ flowchart TD
     sso --> kavita
 
     subgraph T5["Tier 5: Extras"]
+        bootusers["bootstrap-users"]
         ldap["LDAP Outpost"]
         nasapps["NAS Apps"]
         arrcreds["arr-credentials"]
@@ -322,11 +350,11 @@ flowchart TD
         immich["Immich<br/>server, ML, PostgreSQL, Redis"]
         immichoauth["immich-oauth"]
         syncthing["Syncthing"]
-        homcfg["homarr-config"]
         nasint["nas-integration"]
         kiwix["Kiwix"]
     end
     T4 -.->|target| T5
+    sso --> bootusers
     authentik --> ldap
     sso --> nasapps
     sso --> jsoidc
@@ -334,7 +362,6 @@ flowchart TD
     sso --> ncoidc
     sso --> vwsso
     sso --> immichoauth
-    sso --> homcfg
     sso --> nasint
     arrstack --> arrcreds
     arrsecrets --> arrcreds
@@ -345,7 +372,6 @@ flowchart TD
     arrcreds --> lidcfg
     arrcreds --> bazcfg
     arrcreds --> jfint
-    arrcreds --> homcfg
     recyclarr --> arrnaming
     recyclarr --> jfint
     arrdl --> jfint
@@ -354,7 +380,6 @@ flowchart TD
     jellyseerr --> jsoidc
     monitoring --> grafoidc
     nextcloud --> ncoidc
-    homarrsetup --> homcfg
     vaultwarden --> vwadmin
     vwadmin --> vwsso
     vwadmin --> vwsync

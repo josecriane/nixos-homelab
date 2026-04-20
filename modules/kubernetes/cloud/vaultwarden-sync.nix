@@ -3,34 +3,33 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   markerFile = "/var/lib/vaultwarden-sync-done";
 in
 {
   systemd.services.vaultwarden-sync = {
     description = "Sync K8s credential secrets to Vaultwarden";
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "vaultwarden-admin-setup.service"
       "vaultwarden-sso-setup.service"
       "syncthing-setup.service"
-      "homarr-setup.service"
       "jellyseerr-oidc-config.service"
       "immich-oauth-setup.service"
       "nextcloud-setup.service"
     ];
     requires = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "vaultwarden-admin-setup.service"
     ];
     wants = [
       "vaultwarden-sso-setup.service"
       "syncthing-setup.service"
-      "homarr-setup.service"
       "jellyseerr-oidc-config.service"
       "immich-oauth-setup.service"
       "nextcloud-setup.service"
@@ -196,8 +195,6 @@ in
           "ADMIN_USER" "ADMIN_PASSWORD" "URL" "API_KEY"
 
         # Cloud
-        sync_service "Homarr" "homarr" "homarr-credentials" \
-          "ADMIN_USER" "ADMIN_PASSWORD" "URL" "API_KEY"
         sync_service "Nextcloud" "nextcloud" "nextcloud-local-credentials" \
           "USER" "PASSWORD" "URL"
         sync_service "Immich" "immich" "immich-local-credentials" \

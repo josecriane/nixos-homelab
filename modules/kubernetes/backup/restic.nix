@@ -112,14 +112,14 @@ let
 
     # K8s Secrets backup (all namespaces)
     echo "Backing up K8s Secrets..."
-    for NS in authentik cert-manager extra homarr immich media monitoring nextcloud syncthing traefik-system vaultwarden; do
+    for NS in authentik cert-manager extra homer immich media monitoring nextcloud syncthing traefik-system vaultwarden; do
       if ${kubectl} get namespace "$NS" &>/dev/null; then
         ${kubectl} get secrets -n "$NS" -o yaml > "${dumpDir}/k8s-secrets/$NS-secrets.yaml" 2>/dev/null || true
       fi
     done
 
     # Credential secrets backup (all namespaces, labeled)
-    ${kubectl} get secrets --all-namespaces -l homelab/credential=true -o yaml \
+    ${kubectl} get secrets --all-namespaces -l k8s/credential=true -o yaml \
       > "${dumpDir}/k8s-secrets/all-credentials.yaml" 2>/dev/null || true
     echo "  K8s Secrets: $(du -sh "${dumpDir}/k8s-secrets" | cut -f1)"
 
@@ -305,20 +305,27 @@ in
         # Create backup directory on NAS
         mkdir -p "${resticRepo}"
 
-        # Initialize Restic repo if needed
+        # Initialize Restic repo if needed. NFS stale handles can hang
+        # restic indefinitely, so we timebox the check and treat NAS I/O
+        # errors as non-fatal (backups will retry on the next run).
         ${resticEnv}
-        if ${restic} cat config &>/dev/null 2>&1; then
+        if ${pkgs.coreutils}/bin/timeout 30 ${restic} cat config &>/dev/null; then
           echo "Restic repository already exists"
-        elif [ -f "${resticRepo}/config" ]; then
-          # Repo exists but password doesn't match (leftover from old install)
-          echo "Restic repo exists but password mismatch, re-creating..."
-          rm -rf "${resticRepo}"
+        elif ${pkgs.coreutils}/bin/timeout 10 test -f "${resticRepo}/config"; then
+          echo "Restic repo exists but password mismatch or unreadable, re-creating..."
+          rm -rf "${resticRepo}" 2>/dev/null || true
           mkdir -p "${resticRepo}"
-          ${restic} init
+          if ! ${pkgs.coreutils}/bin/timeout 60 ${restic} init; then
+            echo "WARN: restic init failed (NAS issue?), skipping marker creation"
+            exit 0
+          fi
           echo "Restic repository re-initialized at ${resticRepo}"
         else
           echo "Initializing Restic repository..."
-          ${restic} init
+          if ! ${pkgs.coreutils}/bin/timeout 60 ${restic} init; then
+            echo "WARN: restic init failed (NAS issue?), skipping marker creation"
+            exit 0
+          fi
           echo "Restic repository initialized at ${resticRepo}"
         fi
 

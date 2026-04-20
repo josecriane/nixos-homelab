@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/arr-stack-setup-done";
 in
@@ -25,8 +26,8 @@ in
       "arr-secrets-setup.service"
     ];
     # TIER 4: Media
-    wantedBy = [ "k3s-media.target" ];
-    before = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
+    before = [ "k3s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -39,7 +40,7 @@ in
                 wait_for_traefik
                 wait_for_certificate
 
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
                 wait_for_shared_data "${ns}"
 
                 # Create config PVCs (shared-data is created by nfs-storage-setup)
@@ -264,12 +265,12 @@ in
                 wait_for_pod "${ns}" "app=qbittorrent" 180
 
                 # Create IngressRoutes (ForwardAuth + local auth)
-                create_ingress_route "prowlarr" "${ns}" "$(hostname prowlarr)" "prowlarr" "9696" "authentik-forward-auth:traefik-system"
-                create_ingress_route "sonarr" "${ns}" "$(hostname sonarr)" "sonarr" "8989" "authentik-forward-auth:traefik-system"
-                create_ingress_route "sonarr-es" "${ns}" "$(hostname sonarr-es)" "sonarr-es" "8989" "authentik-forward-auth:traefik-system"
-                create_ingress_route "radarr" "${ns}" "$(hostname radarr)" "radarr" "7878" "authentik-forward-auth:traefik-system"
-                create_ingress_route "radarr-es" "${ns}" "$(hostname radarr-es)" "radarr-es" "7878" "authentik-forward-auth:traefik-system"
-                create_ingress_route "qbittorrent" "${ns}" "$(hostname qbit)" "qbittorrent" "8080" "authentik-forward-auth:traefik-system"
+                create_ingress_route "prowlarr" "${ns}" "$(hostname prowlarr)" "prowlarr" "9696" "forward-auth:traefik-system"
+                create_ingress_route "sonarr" "${ns}" "$(hostname sonarr)" "sonarr" "8989" "forward-auth:traefik-system"
+                create_ingress_route "sonarr-es" "${ns}" "$(hostname sonarr-es)" "sonarr-es" "8989" "forward-auth:traefik-system"
+                create_ingress_route "radarr" "${ns}" "$(hostname radarr)" "radarr" "7878" "forward-auth:traefik-system"
+                create_ingress_route "radarr-es" "${ns}" "$(hostname radarr-es)" "radarr-es" "7878" "forward-auth:traefik-system"
+                create_ingress_route "qbittorrent" "${ns}" "$(hostname qbit)" "qbittorrent" "8080" "forward-auth:traefik-system"
 
                 # Pre-configure qBittorrent password
                 # qBittorrent 5.x generates a random temp password on first start
@@ -322,5 +323,13 @@ in
                 create_marker "${markerFile}"
       '';
     };
+  };
+
+  # BitTorrent traffic for qBittorrent (Service/qbittorrent-bt, MetalLB layer2).
+  # MetalLB advertises via ARP on the host interface, so packets hit the host
+  # firewall before kube-proxy DNATs them.
+  networking.firewall = {
+    allowedTCPPorts = [ 6881 ];
+    allowedUDPPorts = [ 6881 ];
   };
 }

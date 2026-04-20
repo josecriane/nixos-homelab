@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "authentik";
   markerFile = "/var/lib/authentik-nas-apps-done";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
@@ -103,7 +104,7 @@ let
   ++ [
     "Proxy providers created for ForwardAuth"
     "Assigned to proxy outpost"
-    "ForwardAuth middleware: authentik-forward-auth (traefik-system)"
+    "ForwardAuth middleware: forward-auth (traefik-system)"
   ];
 in
 {
@@ -112,10 +113,10 @@ in
       description = "Setup Authentik applications for NAS services";
       # After media
       after = [
-        "k3s-media.target"
+        "k3s-apps.target"
         "authentik-sso-setup.service"
       ];
-      requires = [ "k3s-media.target" ];
+      requires = [ "k3s-apps.target" ];
       wants = [ "authentik-sso-setup.service" ];
       wantedBy = [ "k3s-extras.target" ];
       before = [ "k3s-extras.target" ];
@@ -343,13 +344,13 @@ in
                     # ============================================
 
                     # Only create if it doesn't exist (might be created by other services)
-                    if ! $KUBECTL get middleware -n traefik-system authentik-forward-auth &>/dev/null; then
+                    if ! $KUBECTL get middleware -n traefik-system forward-auth &>/dev/null; then
                       echo "Creating ForwardAuth middleware..."
                       cat <<EOF | $KUBECTL apply -f -
           apiVersion: traefik.io/v1alpha1
           kind: Middleware
           metadata:
-            name: authentik-forward-auth
+            name: forward-auth
             namespace: traefik-system
           spec:
             forwardAuth:

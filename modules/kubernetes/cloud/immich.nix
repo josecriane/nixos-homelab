@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "immich";
   markerFile = "/var/lib/immich-setup-done";
 
@@ -35,7 +36,7 @@ in
 
                 wait_for_k3s
                 wait_for_certificate
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
 
                 # Use existing password or generate new one
                 EXISTING_PASS=$($KUBECTL get secret immich-secrets -n ${ns} -o jsonpath='{.data.DB_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)

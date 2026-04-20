@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "vaultwarden";
   markerFile = "/var/lib/vaultwarden-setup-done";
 in
@@ -24,59 +25,41 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "vaultwarden-setup" ''
-                ${k8s.libShSource}
-                setup_preamble "${markerFile}" "Vaultwarden"
+        ${k8s.libShSource}
+        setup_preamble "${markerFile}" "Vaultwarden"
 
-                wait_for_k3s
-                wait_for_traefik
-                wait_for_certificate
+        wait_for_k3s
+        wait_for_traefik
+        wait_for_certificate
 
-                helm_repo_add "guerzon" "https://guerzon.github.io/vaultwarden"
-                setup_namespace "${ns}"
+        helm_repo_add "guerzon" "https://guerzon.github.io/vaultwarden"
+        ensure_namespace "${ns}"
 
-                # Install Vaultwarden with persistence
-                helm_install "vaultwarden" "guerzon/vaultwarden" "${ns}" "5m" \
-                  "domain=https://$(hostname vault)" \
-                  "signupsAllowed=true" \
-                  "signupsVerify=false" \
-                  "invitationsAllowed=true" \
-                  "showPasswordHint=false" \
-                  "websocket.enabled=true" \
-                  "storage.data.name=vaultwarden-data" \
-                  "storage.data.size=10Gi" \
-                  "storage.data.class=local-path" \
-                  "storage.data.accessMode=ReadWriteOnce" \
-                  "ingress.enabled=false"
+        # Install Vaultwarden with persistence
+        helm_install "vaultwarden" "guerzon/vaultwarden" "${ns}" "5m" \
+          "domain=https://$(hostname vault)" \
+          "signupsAllowed=true" \
+          "signupsVerify=false" \
+          "invitationsAllowed=true" \
+          "showPasswordHint=false" \
+          "websocket.enabled=true" \
+          "storage.data.name=vaultwarden-data" \
+          "storage.data.size=10Gi" \
+          "storage.data.class=local-path" \
+          "storage.data.accessMode=ReadWriteOnce" \
+          "ingress.enabled=false"
 
-                wait_for_pod "${ns}" "app.kubernetes.io/name=vaultwarden" 300
+        wait_for_pod "${ns}" "app.kubernetes.io/name=vaultwarden" 300
 
-                # IngressRoute
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: traefik.io/v1alpha1
-        kind: IngressRoute
-        metadata:
-          name: vaultwarden
-          namespace: ${ns}
-        spec:
-          entryPoints:
-            - websecure
-          routes:
-            - match: Host(\`$(hostname vault)\`)
-              kind: Rule
-              services:
-                - name: vaultwarden
-                  port: 80
-          tls:
-            secretName: $CERT_SECRET
-        EOF
+        create_ingress_route "vaultwarden" "${ns}" "$(hostname vault)" "vaultwarden" "80"
 
-                print_success "Vaultwarden" \
-                  "URLs:" \
-                  "  URL: https://$(hostname vault)" \
-                  "" \
-                  "Register your first account to become admin"
+        print_success "Vaultwarden" \
+          "URLs:" \
+          "  URL: https://$(hostname vault)" \
+          "" \
+          "Register your first account to become admin"
 
-                create_marker "${markerFile}"
+        create_marker "${markerFile}"
       '';
     };
   };
@@ -86,12 +69,12 @@ in
     description = "Configure Vaultwarden SSO with Authentik";
     # After media (SSO already configured)
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "vaultwarden-setup.service"
       "vaultwarden-admin-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "vaultwarden-setup.service"
       "vaultwarden-admin-setup.service"

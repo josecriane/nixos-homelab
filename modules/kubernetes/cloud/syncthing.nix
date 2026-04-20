@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "syncthing";
   markerFile = "/var/lib/syncthing-setup-done";
   ldapEnabled = serverConfig.authentik.ldap.enable or false;
@@ -29,7 +30,7 @@ in
                 setup_preamble "${markerFile}" "Syncthing"
 
                 wait_for_k3s
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
 
                 # PVCs
                 create_pvc "syncthing-config" "${ns}" "1Gi"

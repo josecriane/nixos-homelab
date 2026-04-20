@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/arr-secrets-setup-done";
 in
@@ -21,9 +22,9 @@ in
     requires = [ "k3s-core.target" ];
     wants = [ "nfs-storage-setup.service" ];
     # TIER 4: Media (must run BEFORE arr-stack-setup)
-    wantedBy = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
     before = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "arr-stack-setup.service"
     ];
 
@@ -35,7 +36,7 @@ in
         setup_preamble "${markerFile}" "arr-stack secrets"
 
         wait_for_k3s
-        setup_namespace "${ns}"
+        ensure_namespace "${ns}"
 
         # Create a K8s Secret with a stable API key for an arr service.
         # If the Secret already exists, leave it alone.

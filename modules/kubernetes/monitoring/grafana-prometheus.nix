@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "monitoring";
   markerFile = "/var/lib/monitoring-setup-done";
 in
@@ -32,7 +33,7 @@ in
         wait_for_certificate
 
         helm_repo_add "prometheus-community" "https://prometheus-community.github.io/helm-charts"
-        setup_namespace "${ns}"
+        ensure_namespace "${ns}"
 
         # Generate or reuse Grafana admin password
         GRAFANA_ADMIN_PASSWORD=$(get_secret_value "${ns}" "grafana-admin-credentials" "ADMIN_PASSWORD")
@@ -66,8 +67,8 @@ in
 
         # IngressRoutes
         create_ingress_route "grafana" "${ns}" "$(hostname grafana)" "kube-prometheus-stack-grafana" "80"
-        create_ingress_route "prometheus" "${ns}" "$(hostname prometheus)" "kube-prometheus-stack-prometheus" "9090" "authentik-forward-auth:traefik-system"
-        create_ingress_route "alertmanager" "${ns}" "$(hostname alertmanager)" "kube-prometheus-stack-alertmanager" "9093" "authentik-forward-auth:traefik-system"
+        create_ingress_route "prometheus" "${ns}" "$(hostname prometheus)" "kube-prometheus-stack-prometheus" "9090" "forward-auth:traefik-system"
+        create_ingress_route "alertmanager" "${ns}" "$(hostname alertmanager)" "kube-prometheus-stack-alertmanager" "9093" "forward-auth:traefik-system"
 
         store_credentials "${ns}" "grafana-admin-credentials" \
           "ADMIN_USER=admin" "ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD"
@@ -88,11 +89,11 @@ in
     description = "Configure Grafana OIDC with Authentik SSO";
     # After media (SSO already configured)
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "monitoring-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "monitoring-setup.service"
       "authentik-sso-setup.service"
@@ -140,6 +141,17 @@ in
           GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups, 'admins') && 'Admin' || 'Viewer'"
         EOF
 
+                # Wait up to 180s for Grafana deployment to appear.
+                # If monitoring is disabled or still installing, skip gracefully without marker.
+                for _i in $(seq 1 36); do
+                  $KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} &>/dev/null && break
+                  sleep 5
+                done
+                if ! $KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} &>/dev/null; then
+                  echo "Grafana deployment not found, skipping OIDC setup (will retry next boot)"
+                  exit 0
+                fi
+
                 # Patch Grafana deployment to use envFrom secret
                 if ! $KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} -o jsonpath='{.spec.template.spec.containers[*].envFrom}' | grep -q "grafana-oidc-env"; then
                   $KUBECTL patch deployment kube-prometheus-stack-grafana -n ${ns} --type=strategic -p='{
@@ -158,7 +170,14 @@ in
                   # Secret already referenced but content may have changed -- restart to pick up new values
                   $KUBECTL rollout restart deployment/kube-prometheus-stack-grafana -n ${ns}
                 fi
-                wait_for_pod "${ns}" "app.kubernetes.io/name=grafana" 180
+
+                # Only wait for pod if deployment has replicas > 0 (may be scaled down by service-manager).
+                REPLICAS=$($KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)
+                if [ "''${REPLICAS:-0}" -gt 0 ]; then
+                  wait_for_pod "${ns}" "app.kubernetes.io/name=grafana" 180
+                else
+                  echo "Grafana scaled to 0, patch applied (will take effect on scale up)"
+                fi
 
                 print_success "Grafana OIDC" \
                   "URL: https://$(hostname grafana)" \

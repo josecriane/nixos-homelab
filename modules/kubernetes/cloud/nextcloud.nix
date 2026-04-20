@@ -3,14 +3,16 @@
   lib,
   pkgs,
   serverConfig,
+  nodeConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "nextcloud";
   markerFile = "/var/lib/nextcloud-setup-done";
-  ipParts = lib.splitString "." serverConfig.serverIP;
+  ipParts = lib.splitString "." nodeConfig.ip;
   lanSubnet = "${builtins.elemAt ipParts 0}.${builtins.elemAt ipParts 1}.${builtins.elemAt ipParts 2}.0/24";
 
   # Find NAS with cloudPaths.nextcloud for PV fallback creation
@@ -30,8 +32,8 @@ in
     requires = [ "k3s-core.target" ];
     wants = [ "nfs-storage-setup.service" ];
     # TIER 4: Media
-    wantedBy = [ "k3s-media.target" ];
-    before = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
+    before = [ "k3s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -45,7 +47,7 @@ in
                 wait_for_certificate
 
                 helm_repo_add "nextcloud" "https://nextcloud.github.io/helm/"
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
 
                 # Reuse existing passwords if available (avoid breaking DB on re-runs)
                 NEXTCLOUD_ADMIN_PASSWORD=$(get_secret_value "${ns}" "nextcloud" "nextcloud-password")
@@ -353,11 +355,11 @@ in
     description = "Configure Nextcloud OIDC with Authentik";
     # After media (SSO already configured)
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "nextcloud-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "nextcloud-setup.service"
       "authentik-sso-setup.service"
@@ -388,10 +390,12 @@ in
           exit 1
         fi
 
-        NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}')
+        # Get Nextcloud pod; may be absent if scaled to 0 by service-manager.
+        # Skip gracefully without marker so it retries on next boot or when scaled back up.
+        NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
         if [ -z "$NC_POD" ]; then
-          echo "Nextcloud pod not found"
-          exit 1
+          echo "No Nextcloud pod found (scaled to 0 or not installed yet), skipping OIDC setup"
+          exit 0
         fi
 
         # Wait for pod ready

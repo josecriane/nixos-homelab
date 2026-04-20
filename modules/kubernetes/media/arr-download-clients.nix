@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/arr-download-clients-setup-done";
   curl = "curl";
@@ -16,10 +17,10 @@ in
   systemd.services.arr-download-clients-setup = {
     description = "Configure qBittorrent as download client in arr-stack services";
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "arr-credentials-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [ "arr-credentials-setup.service" ];
     wantedBy = [ "k3s-extras.target" ];
     before = [ "k3s-extras.target" ];

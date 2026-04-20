@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/lidarr-setup-done";
 in
@@ -27,8 +28,8 @@ in
       "arr-secrets-setup.service"
     ];
     # TIER 4: Media
-    wantedBy = [ "k3s-media.target" ];
-    before = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
+    before = [ "k3s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -63,7 +64,7 @@ in
         wait_for_pod "${ns}" "app=lidarr" 180
 
         # IngressRoute (ForwardAuth + local auth)
-        create_ingress_route "lidarr" "${ns}" "$(hostname lidarr)" "lidarr" "8686" "authentik-forward-auth:traefik-system"
+        create_ingress_route "lidarr" "${ns}" "$(hostname lidarr)" "lidarr" "8686" "forward-auth:traefik-system"
 
         print_success "Lidarr" \
           "URLs:" \

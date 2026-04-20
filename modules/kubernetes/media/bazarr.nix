@@ -3,11 +3,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/bazarr-setup-done";
 in
@@ -25,8 +26,8 @@ in
       "arr-stack-setup.service"
     ];
     # TIER 4: Media
-    wantedBy = [ "k3s-media.target" ];
-    before = [ "k3s-media.target" ];
+    wantedBy = [ "k3s-apps.target" ];
+    before = [ "k3s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -60,7 +61,7 @@ in
         wait_for_pod "${ns}" "app=bazarr" 180
 
         # IngressRoute (ForwardAuth + local auth)
-        create_ingress_route "bazarr" "${ns}" "$(hostname bazarr)" "bazarr" "6767" "authentik-forward-auth:traefik-system"
+        create_ingress_route "bazarr" "${ns}" "$(hostname bazarr)" "bazarr" "6767" "forward-auth:traefik-system"
 
         print_success "Bazarr" \
           "URLs:" \

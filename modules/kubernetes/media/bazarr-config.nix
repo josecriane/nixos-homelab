@@ -3,12 +3,13 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   secretsPath,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/bazarr-config-setup-done";
   curl = "curl";
@@ -22,11 +23,11 @@ in
   systemd.services.bazarr-config-setup = {
     description = "Configure Bazarr subtitle providers and connections";
     after = [
-      "k3s-media.target"
+      "k3s-apps.target"
       "arr-credentials-setup.service"
       "bazarr-setup.service"
     ];
-    requires = [ "k3s-media.target" ];
+    requires = [ "k3s-apps.target" ];
     wants = [
       "arr-credentials-setup.service"
       "bazarr-setup.service"

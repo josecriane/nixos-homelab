@@ -6,11 +6,12 @@
   lib,
   pkgs,
   serverConfig,
+  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import ../lib.nix { inherit pkgs serverConfig; };
+  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "openstreetmap";
   markerFile = "/var/lib/openstreetmap-setup-done";
 
@@ -45,7 +46,7 @@ in
 
                 wait_for_k3s
                 wait_for_certificate
-                setup_namespace "${ns}"
+                ensure_namespace "${ns}"
 
                 # Ensure NAS PV exists
                 PV_PHASE=$($KUBECTL get pv openstreetmap-data-pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
