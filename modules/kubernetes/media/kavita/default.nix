@@ -17,9 +17,7 @@ let
   pgid = toString (serverConfig.pgid or 1000);
   configMarkerFile = "/var/lib/kavita-config-setup-done";
   values = pkgs.writeText "kavita-values.yaml" (
-    builtins.replaceStrings
-      [ "__TIMEZONE__" "__PUID__" "__PGID__" ]
-      [ serverConfig.timezone puid pgid ]
+    builtins.replaceStrings [ "__TIMEZONE__" "__PUID__" "__PGID__" ] [ serverConfig.timezone puid pgid ]
       (builtins.readFile ./values.yaml)
   );
 

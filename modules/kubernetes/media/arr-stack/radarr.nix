@@ -7,7 +7,14 @@
 }:
 
 let
-  helpers = import ./lib.nix { inherit lib pkgs serverConfig nixos-k8s; };
+  helpers = import ./lib.nix {
+    inherit
+      lib
+      pkgs
+      serverConfig
+      nixos-k8s
+      ;
+  };
 in
 helpers.mkArrRelease {
   name = "radarr";

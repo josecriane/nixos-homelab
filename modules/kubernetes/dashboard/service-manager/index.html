@@ -72,6 +72,11 @@
   .btn-toggle-all:hover { border-color: #666; color: #ccc; }
   .error-toast { position: fixed; top: 20px; right: 20px; background: #da3633; color: #fff; padding: 12px 20px; border-radius: 6px; display: none; z-index: 100; font-size: 0.9rem; }
   .status-count { font-size: 0.8rem; color: #888; }
+  .filter-row { display: flex; gap: 6px; align-items: center; margin: 12px 0 4px; flex-wrap: wrap; font-size: 0.75rem; }
+  .filter-label { color: #888; }
+  .filter-chip { background: #1e1e1e; border: 1px solid #2b2b2b; color: #aaa; border-radius: 12px; padding: 3px 10px; cursor: pointer; font-size: 0.75rem; }
+  .filter-chip:hover { border-color: #8ab4f8; color: #8ab4f8; }
+  .filter-chip.active { background: rgba(138, 180, 248, 0.15); border-color: #8ab4f8; color: #8ab4f8; }
 </style>
 </head>
 <body>
@@ -84,7 +89,12 @@
     <div class="ram-bar-fill" id="ramFill" style="width:0%; background:#2ea043;"></div>
     <span class="ram-bar-text" id="ramText">Loading...</span>
   </div>
+  <div class="ram-bar" style="margin-top:6px;">
+    <div class="ram-bar-fill" id="cpuFill" style="width:0%; background:#2ea043;"></div>
+    <span class="ram-bar-text" id="cpuText">CPU: loading...</span>
+  </div>
   <div class="node-row" id="nodeRow"></div>
+  <div class="filter-row" id="filterRow" style="display:none;"></div>
 </div>
 <div id="groups"></div>
 <div class="error-toast" id="errorToast"></div>
@@ -94,6 +104,12 @@ let state = { services: [], nodes: [], ramUsed: 0, ramTotal: 0 };
 let collapsed = null;
 let busyServices = {};
 let busyNodes = {};
+let nodeFilter = null;
+
+function setNodeFilter(node) {
+  nodeFilter = node;
+  render();
+}
 
 async function fetchServices() {
   try {
@@ -195,6 +211,12 @@ function formatMB(bytes) {
   return (bytes / 1024 / 1024).toFixed(0) + ' MB';
 }
 
+function formatCPU(milli) {
+  if (!milli || milli <= 0) return '0m';
+  if (milli >= 1000) return (milli / 1000).toFixed(2) + ' cores';
+  return milli + 'm';
+}
+
 function ramColor(pct) {
   return pct > 85 ? '#da3633' : pct > 70 ? '#d29922' : '#2ea043';
 }
@@ -208,7 +230,13 @@ function render() {
   const fill = document.getElementById('ramFill');
   fill.style.width = pct.toFixed(1) + '%';
   fill.style.background = ramColor(pct);
-  document.getElementById('ramText').textContent = formatMB(state.ramUsed) + ' / ' + formatMB(state.ramTotal) + ' (' + pct.toFixed(1) + '%)';
+  document.getElementById('ramText').textContent = 'RAM: ' + formatMB(state.ramUsed) + ' / ' + formatMB(state.ramTotal) + ' (' + pct.toFixed(1) + '%)';
+
+  const cpuPct = state.cpuTotal > 0 ? (state.cpuUsed / state.cpuTotal * 100) : 0;
+  const cpuFill = document.getElementById('cpuFill');
+  cpuFill.style.width = cpuPct.toFixed(1) + '%';
+  cpuFill.style.background = ramColor(cpuPct);
+  document.getElementById('cpuText').textContent = 'CPU: ' + formatCPU(state.cpuUsed) + ' / ' + formatCPU(state.cpuTotal) + ' (' + cpuPct.toFixed(1) + '%)';
 
   const nodeRow = document.getElementById('nodeRow');
   const nodes = state.nodes || [];
@@ -216,6 +244,7 @@ function render() {
     let nodeHtml = '';
     nodes.forEach(n => {
       const npct = n.ramTotal > 0 ? (n.ramUsed / n.ramTotal * 100) : 0;
+      const ncpupct = n.cpuTotal > 0 ? (n.cpuUsed / n.cpuTotal * 100) : 0;
       const dotColor = n.ready ? '#2ea043' : '#da3633';
       const cordonLabel = n.unschedulable ? 'uncordon' : 'cordon';
       const cordonClass = n.unschedulable ? 'cordoned' : '';
@@ -229,7 +258,13 @@ function render() {
       nodeHtml += '</div>';
       nodeHtml += '<div class="ram-bar">';
       nodeHtml += '<div class="ram-bar-fill" style="width:' + npct.toFixed(1) + '%; background:' + ramColor(npct) + ';"></div>';
-      nodeHtml += '<span class="ram-bar-text">' + formatMB(n.ramUsed) + ' / ' + formatMB(n.ramTotal) + '</span>';
+      nodeHtml += '<span class="ram-bar-text">RAM: ' + formatMB(n.ramUsed) + ' / ' + formatMB(n.ramTotal) + '</span>';
+      nodeHtml += '</div></div>';
+      nodeHtml += '<div class="node-bar">';
+      nodeHtml += '<div class="node-label" style="visibility:hidden;">' + escapeHtml(n.name) + '</div>';
+      nodeHtml += '<div class="ram-bar">';
+      nodeHtml += '<div class="ram-bar-fill" style="width:' + ncpupct.toFixed(1) + '%; background:' + ramColor(ncpupct) + ';"></div>';
+      nodeHtml += '<span class="ram-bar-text">CPU: ' + formatCPU(n.cpuUsed) + ' / ' + formatCPU(n.cpuTotal) + '</span>';
       nodeHtml += '</div></div>';
     });
     nodeRow.innerHTML = nodeHtml;
@@ -237,13 +272,35 @@ function render() {
     nodeRow.innerHTML = '';
   }
 
+  const multiNode = (state.nodes || []).length > 1;
+
+  const filterRow = document.getElementById('filterRow');
+  if (multiNode) {
+    const validNodes = nodes.map(n => n.name);
+    if (nodeFilter && !validNodes.includes(nodeFilter)) nodeFilter = null;
+    let filterHtml = '<span class="filter-label">Node:</span>';
+    filterHtml += '<button class="filter-chip ' + (nodeFilter === null ? 'active' : '') + '" onclick="setNodeFilter(null)">all</button>';
+    nodes.forEach(n => {
+      const active = nodeFilter === n.name ? 'active' : '';
+      filterHtml += '<button class="filter-chip ' + active + '" onclick="setNodeFilter(\'' + escapeHtml(n.name) + '\')">' + escapeHtml(n.name) + '</button>';
+    });
+    filterRow.innerHTML = filterHtml;
+    filterRow.style.display = 'flex';
+  } else {
+    filterRow.style.display = 'none';
+    nodeFilter = null;
+  }
+
+  const visibleServices = (state.services || []).filter(s => {
+    if (!nodeFilter) return true;
+    return (s.nodes || []).includes(nodeFilter);
+  });
+
   const groups = {};
-  (state.services || []).forEach(s => {
+  visibleServices.forEach(s => {
     if (!groups[s.group]) groups[s.group] = [];
     groups[s.group].push(s);
   });
-
-  const multiNode = (state.nodes || []).length > 1;
 
   let html = '';
   for (const [group, svcs] of Object.entries(groups)) {
@@ -267,11 +324,16 @@ function render() {
     const allRunning = stoppableRunning === stoppable.length;
     const allStopped = stoppableRunning === 0;
     html += '<div class="group-actions">';
-    if (stoppable.length > 0 && !allRunning) {
-      html += '<button class="btn-start" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + escapeHtml(group) + '\',1)">Start</button>';
-    }
-    if (stoppable.length > 0 && !allStopped) {
-      html += '<button class="btn-stop" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + escapeHtml(group) + '\',0)">Stop</button>';
+    // Hide bulk Start/Stop when filtering by node: scaleGroup acts on the whole
+    // group, which would surprise the user by touching services not currently
+    // visible in the filtered view.
+    if (!nodeFilter) {
+      if (stoppable.length > 0 && !allRunning) {
+        html += '<button class="btn-start" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + escapeHtml(group) + '\',1)">Start</button>';
+      }
+      if (stoppable.length > 0 && !allStopped) {
+        html += '<button class="btn-stop" ' + (groupBusy ? 'disabled' : '') + ' onclick="event.stopPropagation();scaleGroup(\'' + escapeHtml(group) + '\',0)">Stop</button>';
+      }
     }
     html += '</div></div>';
 
@@ -299,7 +361,8 @@ function render() {
       if (s.statusDetail) {
         html += '<span class="svc-status-detail" title="' + escapeHtml(s.statusDetail) + '">' + escapeHtml(s.statusDetail.split(':')[0]) + '</span>';
       }
-      if (s.ramBytes > 0) html += '<span class="svc-ram">(' + formatMB(s.ramBytes) + ')</span>';
+      if (s.ramBytes > 0) html += '<span class="svc-ram">' + formatMB(s.ramBytes) + '</span>';
+      if (s.cpuMilli > 0) html += '<span class="svc-ram">' + formatCPU(s.cpuMilli) + '</span>';
       html += '</div>';
       const canStop = s.canStop !== false;
       const showPin = multiNode && (s.kind !== 'DaemonSet');

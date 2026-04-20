@@ -35,6 +35,7 @@ type ServiceStatus struct {
 	Replicas      int      `json:"replicas"`
 	Ready         bool     `json:"ready"`
 	RAMBytes      int64    `json:"ramBytes"`
+	CPUMilli      int64    `json:"cpuMilli"`
 	Nodes         []string `json:"nodes"`
 	URLs          []string `json:"urls"`
 	StatusDetail  string   `json:"statusDetail"`
@@ -47,6 +48,8 @@ type NodeStatus struct {
 	Unschedulable bool   `json:"unschedulable"`
 	RAMUsed       int64  `json:"ramUsed"`
 	RAMTotal      int64  `json:"ramTotal"`
+	CPUUsed       int64  `json:"cpuUsed"`
+	CPUTotal      int64  `json:"cpuTotal"`
 }
 
 type ServicesResponse struct {
@@ -54,6 +57,8 @@ type ServicesResponse struct {
 	Nodes    []NodeStatus    `json:"nodes"`
 	RAMUsed  int64           `json:"ramUsed"`
 	RAMTotal int64           `json:"ramTotal"`
+	CPUUsed  int64           `json:"cpuUsed"`
+	CPUTotal int64           `json:"cpuTotal"`
 }
 
 type ScaleRequest struct {
@@ -230,6 +235,7 @@ type podMetric struct {
 	PodName   string
 	Node      string
 	RAM       int64
+	CPU       int64
 }
 
 type podInfo struct {
@@ -334,6 +340,7 @@ func getPodMetricsAll(nodeByPod map[string]podInfo) []podMetric {
 			Containers []struct {
 				Usage struct {
 					Memory string `json:"memory"`
+					CPU    string `json:"cpu"`
 				} `json:"usage"`
 			} `json:"containers"`
 		} `json:"items"`
@@ -343,15 +350,17 @@ func getPodMetricsAll(nodeByPod map[string]podInfo) []podMetric {
 	}
 	var metrics []podMetric
 	for _, pod := range result.Items {
-		var ram int64
+		var ram, cpu int64
 		for _, c := range pod.Containers {
 			ram += parseK8sMemory(c.Usage.Memory)
+			cpu += parseK8sCPU(c.Usage.CPU)
 		}
 		metrics = append(metrics, podMetric{
 			Namespace: pod.Metadata.Namespace,
 			PodName:   pod.Metadata.Name,
 			Node:      nodeByPod[pod.Metadata.Namespace+"/"+pod.Metadata.Name].Node,
 			RAM:       ram,
+			CPU:       cpu,
 		})
 	}
 	return metrics
@@ -359,6 +368,7 @@ func getPodMetricsAll(nodeByPod map[string]podInfo) []podMetric {
 
 type workloadUsage struct {
 	RAM          int64
+	CPU          int64
 	Nodes        map[string]bool
 	StatusDetail string
 }
@@ -420,6 +430,7 @@ func matchPodsToWorkloads(podInfos map[string]podInfo, pods []podMetric, deploym
 			usage[key] = u
 		}
 		u.RAM += pod.RAM
+		u.CPU += pod.CPU
 	}
 	return usage
 }
@@ -431,6 +442,34 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// parseK8sCPU returns CPU quantity in millicores. Accepts the K8s canonical
+// formats: "500m" (millicores), "1234567n" (nanocores), "500000u" (microcores),
+// or a bare number in whole cores ("2" -> 2000m).
+func parseK8sCPU(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	if strings.HasSuffix(s, "n") {
+		var v int64
+		fmt.Sscanf(s, "%dn", &v)
+		return v / 1_000_000
+	}
+	if strings.HasSuffix(s, "u") {
+		var v int64
+		fmt.Sscanf(s, "%du", &v)
+		return v / 1000
+	}
+	if strings.HasSuffix(s, "m") {
+		var v int64
+		fmt.Sscanf(s, "%dm", &v)
+		return v
+	}
+	var v int64
+	fmt.Sscanf(s, "%d", &v)
+	return v * 1000
 }
 
 func parseK8sMemory(s string) int64 {
@@ -500,6 +539,7 @@ func listNodes() []NodeStatus {
 			Ready:         ready,
 			Unschedulable: n.Spec.Unschedulable,
 			RAMTotal:      parseK8sMemory(n.Status.Capacity["memory"]),
+			CPUTotal:      parseK8sCPU(n.Status.Capacity["cpu"]),
 		})
 	}
 
@@ -513,16 +553,20 @@ func listNodes() []NodeStatus {
 				} `json:"metadata"`
 				Usage struct {
 					Memory string `json:"memory"`
+					CPU    string `json:"cpu"`
 				} `json:"usage"`
 			} `json:"items"`
 		}
 		if json.NewDecoder(resp2.Body).Decode(&metrics) == nil {
-			used := make(map[string]int64, len(metrics.Items))
+			usedRAM := make(map[string]int64, len(metrics.Items))
+			usedCPU := make(map[string]int64, len(metrics.Items))
 			for _, m := range metrics.Items {
-				used[m.Metadata.Name] = parseK8sMemory(m.Usage.Memory)
+				usedRAM[m.Metadata.Name] = parseK8sMemory(m.Usage.Memory)
+				usedCPU[m.Metadata.Name] = parseK8sCPU(m.Usage.CPU)
 			}
 			for i := range result {
-				result[i].RAMUsed = used[result[i].Name]
+				result[i].RAMUsed = usedRAM[result[i].Name]
+				result[i].CPUUsed = usedCPU[result[i].Name]
 			}
 		}
 	}
@@ -644,11 +688,12 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 			replicas = *d.Spec.Replicas
 		}
 		key := ns + "/" + d.Metadata.Name
-		var ram int64
+		var ram, cpu int64
 		var nodeList []string
 		var detail string
 		if u, ok := usage[key]; ok {
 			ram = u.RAM
+			cpu = u.CPU
 			nodeList = sortedKeys(u.Nodes)
 			detail = u.StatusDetail
 		}
@@ -662,6 +707,7 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 			Replicas:      replicas,
 			Ready:         d.Status.ReadyReplicas > 0,
 			RAMBytes:      ram,
+			CPUMilli:      cpu,
 			Nodes:         nodeList,
 			URLs:          ingressHosts[key],
 			StatusDetail:  detail,
@@ -676,16 +722,20 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 		return statuses[i].Name < statuses[j].Name
 	})
 
-	var totalUsed, totalCap int64
+	var totalRAMUsed, totalRAMCap, totalCPUUsed, totalCPUCap int64
 	for _, n := range nodes {
-		totalUsed += n.RAMUsed
-		totalCap += n.RAMTotal
+		totalRAMUsed += n.RAMUsed
+		totalRAMCap += n.RAMTotal
+		totalCPUUsed += n.CPUUsed
+		totalCPUCap += n.CPUTotal
 	}
 	resp := ServicesResponse{
 		Services: statuses,
 		Nodes:    nodes,
-		RAMUsed:  totalUsed,
-		RAMTotal: totalCap,
+		RAMUsed:  totalRAMUsed,
+		RAMTotal: totalRAMCap,
+		CPUUsed:  totalCPUUsed,
+		CPUTotal: totalCPUCap,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

@@ -32,13 +32,13 @@ let
       extraPersistence =
         if withSharedData then
           ''
-              data:
-                type: persistentVolumeClaim
-                existingClaim: shared-data
-                advancedMounts:
-                  ${name}:
-                    main:
-                      - path: /data''
+            data:
+              type: persistentVolumeClaim
+              existingClaim: shared-data
+              advancedMounts:
+                ${name}:
+                  main:
+                    - path: /data''
         else
           "";
 
@@ -95,14 +95,18 @@ let
     in
     lib.recursiveUpdate release {
       systemd.services."${name}-setup" = {
-        after = (release.systemd.services."${name}-setup".after or [ ]) ++ [
-          "arr-secrets-setup.service"
-          "nfs-storage-setup.service"
-        ] ++ extraAfter;
+        after =
+          (release.systemd.services."${name}-setup".after or [ ])
+          ++ [
+            "arr-secrets-setup.service"
+            "nfs-storage-setup.service"
+          ]
+          ++ extraAfter;
         wants = [
           "arr-secrets-setup.service"
           "nfs-storage-setup.service"
-        ] ++ extraAfter;
+        ]
+        ++ extraAfter;
       };
     };
 in

@@ -12,10 +12,9 @@
 let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   values = pkgs.writeText "flaresolverr-values.yaml" (
-    builtins.replaceStrings
-      [ "__TIMEZONE__" ]
-      [ serverConfig.timezone ]
-      (builtins.readFile ./values.yaml)
+    builtins.replaceStrings [ "__TIMEZONE__" ] [ serverConfig.timezone ] (
+      builtins.readFile ./values.yaml
+    )
   );
 in
 k8s.createHelmRelease {

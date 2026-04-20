@@ -18,8 +18,9 @@ let
   configMarkerFile = "/var/lib/jellyfin-config-setup-done";
   jellyfinHostname = k8s.hostname "jellyfin";
   values = pkgs.writeText "jellyfin-values.yaml" (
-    builtins.replaceStrings [ "__JELLYFIN_URL__" ] [ jellyfinHostname ]
-      (builtins.readFile ./values.yaml)
+    builtins.replaceStrings [ "__JELLYFIN_URL__" ] [ jellyfinHostname ] (
+      builtins.readFile ./values.yaml
+    )
   );
 
   release = k8s.createHelmRelease {

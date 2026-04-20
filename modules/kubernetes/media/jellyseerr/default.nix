@@ -18,8 +18,9 @@ let
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
   oidcMarkerFile = "/var/lib/jellyseerr-oidc-config-done";
   values = pkgs.writeText "jellyseerr-values.yaml" (
-    builtins.replaceStrings [ "__TIMEZONE__" ] [ serverConfig.timezone ]
-      (builtins.readFile ./values.yaml)
+    builtins.replaceStrings [ "__TIMEZONE__" ] [ serverConfig.timezone ] (
+      builtins.readFile ./values.yaml
+    )
   );
 
   release = k8s.createHelmRelease {

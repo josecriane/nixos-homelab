@@ -15,9 +15,7 @@ let
   puid = toString (serverConfig.puid or 1000);
   pgid = toString (serverConfig.pgid or 1000);
   values = pkgs.writeText "bazarr-values.yaml" (
-    builtins.replaceStrings
-      [ "__TIMEZONE__" "__PUID__" "__PGID__" ]
-      [ serverConfig.timezone puid pgid ]
+    builtins.replaceStrings [ "__TIMEZONE__" "__PUID__" "__PGID__" ] [ serverConfig.timezone puid pgid ]
       (builtins.readFile ./values.yaml)
   );
 
