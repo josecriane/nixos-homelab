@@ -60,6 +60,7 @@
           inherit hostsPath secretsPath;
           extraSpecialArgs = {
             inherit nixos-k8s;
+            nixos-homelab = self;
           }
           // extraSpecialArgs;
           extraModules = [

@@ -1,0 +1,26 @@
+# bjw-s/app-template values for FlareSolverr
+# Cloudflare bypass proxy used by Prowlarr indexers (1337x, EZTV).
+# Internal-only service: no Ingress, reachable at http://flaresolverr.media:8191
+controllers:
+  flaresolverr:
+    containers:
+      main:
+        image:
+          repository: ghcr.io/flaresolverr/flaresolverr
+          tag: v3.3.21
+        env:
+          LOG_LEVEL: info
+          TZ: __TIMEZONE__
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+service:
+  flaresolverr:
+    controller: flaresolverr
+    ports:
+      http:
+        port: 8191
+        targetPort: 8191

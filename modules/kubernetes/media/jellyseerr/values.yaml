@@ -1,0 +1,96 @@
+# Jellyseerr - media request management
+# Two init containers: validate-settings (self-heal from backup) and
+# oidc-config (merge optional OIDC ConfigMap into settings.json).
+# OIDC ConfigMap is created by a separate systemd service after SSO bootstrap.
+controllers:
+  jellyseerr:
+    strategy: Recreate
+    initContainers:
+      validate-settings:
+        image:
+          repository: busybox
+          tag: "1.37.0"
+        command: ["sh", "-c"]
+        args:
+          - |
+            SETTINGS=/app/config/settings.json
+            BACKUP=/app/config/settings.old.json
+            if [ -f "$SETTINGS" ] && tail -c 10 "$SETTINGS" | grep -q "}" && [ $(wc -c < "$SETTINGS") -gt 100 ]; then
+              echo "settings.json OK ($(wc -c < "$SETTINGS") bytes)"
+              cp "$SETTINGS" "$BACKUP"
+            elif [ -f "$BACKUP" ] && tail -c 10 "$BACKUP" | grep -q "}" && [ $(wc -c < "$BACKUP") -gt 100 ]; then
+              echo "Restoring from settings.old.json"
+              cp "$BACKUP" "$SETTINGS"
+            else
+              echo "No valid settings found, Jellyseerr will create defaults"
+              rm -f "$SETTINGS"
+            fi
+      oidc-config:
+        image:
+          repository: alpine
+          tag: "3.20"
+        command: ["sh", "-c"]
+        args:
+          - |
+            apk add --no-cache jq > /dev/null 2>&1
+            SETTINGS=/app/config/settings.json
+            OIDC_FILE=/oidc/config.json
+            if [ -f "$OIDC_FILE" ] && [ -f "$SETTINGS" ]; then
+              echo "Merging OIDC config into settings.json..."
+              jq -s '.[0] * .[1]' "$SETTINGS" "$OIDC_FILE" > "$SETTINGS.tmp"
+              if [ -s "$SETTINGS.tmp" ]; then
+                mv "$SETTINGS.tmp" "$SETTINGS"
+                echo "OIDC config merged successfully"
+              else
+                echo "WARN: merge produced empty file, keeping original"
+                rm -f "$SETTINGS.tmp"
+              fi
+            elif [ -f "$OIDC_FILE" ]; then
+              echo "No settings.json yet, OIDC will be merged on next restart"
+            else
+              echo "No OIDC ConfigMap mounted, skipping"
+            fi
+    containers:
+      main:
+        image:
+          repository: fallenbagel/jellyseerr
+          tag: "preview-OIDC"
+        env:
+          TZ: __TIMEZONE__
+          TRUST_PROXY: "true"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+service:
+  jellyseerr:
+    controller: jellyseerr
+    ports:
+      http:
+        port: 5055
+        targetPort: 5055
+persistence:
+  config:
+    type: persistentVolumeClaim
+    existingClaim: jellyseerr-config
+    advancedMounts:
+      jellyseerr:
+        validate-settings:
+          - path: /app/config
+        oidc-config:
+          - path: /app/config
+        main:
+          - path: /app/config
+  oidc:
+    type: custom
+    volumeSpec:
+      configMap:
+        name: jellyseerr-oidc
+        optional: true
+    advancedMounts:
+      jellyseerr:
+        oidc-config:
+          - path: /oidc
+            readOnly: true

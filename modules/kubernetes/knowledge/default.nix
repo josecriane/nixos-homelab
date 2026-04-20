@@ -1,0 +1,6 @@
+{
+  imports = [
+    ./kiwix
+    ./openstreetmap
+  ];
+}

@@ -1,0 +1,40 @@
+# Kiwix - offline Wikipedia + iFixit + survival ZIMs
+# Data PVC is the existing NFS-backed PV (reclaimPolicy Retain), so content
+# on /mnt/nas2/kiwix survives Helm install/upgrade.
+# kiwix-serve needs at least one .zim before starting, so a wait-loop wraps it.
+controllers:
+  kiwix-serve:
+    strategy: Recreate
+    containers:
+      main:
+        image:
+          repository: ghcr.io/kiwix/kiwix-serve
+          tag: "3.7.0"
+        command: ["sh", "-c"]
+        args:
+          - |
+            while ! ls /data/*.zim >/dev/null 2>&1; do
+              echo "Waiting for ZIM files..."
+              sleep 30
+            done
+            exec kiwix-serve --port 8080 /data/*.zim
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+service:
+  kiwix-serve:
+    controller: kiwix-serve
+    ports:
+      http:
+        port: 8080
+        targetPort: 8080
+persistence:
+  data:
+    type: persistentVolumeClaim
+    existingClaim: kiwix-data
+    globalMounts:
+      - path: /data
+        readOnly: true

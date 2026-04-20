@@ -1,7 +1,9 @@
 # Homer - Lightweight dashboard
-# Replaces Homarr (~559MB) with a static dashboard (~10-20MB)
+# Replaces Homarr (~559MB) with a static dashboard (~10-20MB).
+# Declared via bjw-s/app-template Helm library chart. The dashboard's
+# config.yml is built from serverConfig.services and hostnames, then embedded
+# in a chart-managed ConfigMap and mounted into the container.
 {
-  config,
   lib,
   pkgs,
   serverConfig,
@@ -11,14 +13,11 @@
 
 let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
-  ns = "homer";
-  markerFile = "/var/lib/homer-setup-done";
 
   svc = serverConfig.services or { };
   enabled = name: svc.${name} or false;
   h = k8s.hostname;
 
-  # Build a YAML item (2 extra spaces indent for nesting under items:)
   serviceManagerUrl = "https://${h "services"}";
   pingUrl = ns: name: "${serviceManagerUrl}/api/ping/${ns}/${name}";
 
@@ -37,10 +36,8 @@ let
     + lib.optionalString (type != null) "\n        type: \"${type}\""
     + lib.optionalString (apiurl != null) "\n        apiurl: \"${apiurl}\"";
 
-  # Join items with newlines
   joinItems = items: lib.concatStringsSep "\n" (lib.filter (x: x != "") items);
 
-  # Build a group section
   mkGroup =
     name: icon: items:
     let
@@ -257,7 +254,7 @@ let
     ]
   );
 
-  homerConfigYaml = pkgs.writeText "homer-config.yml" ''
+  homerConfigYaml = ''
     ---
     title: "Homelab"
     subtitle: "${serverConfig.domain}"
@@ -306,91 +303,56 @@ let
     ${allGroups}
   '';
 in
-{
-  systemd.services.homer-setup = {
-    description = "Setup Homer dashboard";
-    after = [ "k3s-storage.target" ];
-    requires = [ "k3s-storage.target" ];
-    wantedBy = [ "k3s-core.target" ];
-    before = [ "k3s-core.target" ];
-
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "homer-setup" ''
-                ${k8s.libShSource}
-                setup_preamble "${markerFile}" "Homer"
-
-                wait_for_k3s
-                wait_for_traefik
-                wait_for_certificate
-                ensure_namespace "${ns}"
-
-                # Create ConfigMap from pre-built YAML
-                $KUBECTL create configmap homer-config -n ${ns} \
-                  --from-file=config.yml=${homerConfigYaml} \
-                  --dry-run=client -o yaml | $KUBECTL apply -f -
-                echo "Homer config created"
-
-                # Deploy Homer
-                cat <<'EOF' | $KUBECTL apply -f -
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: homer
-          namespace: ${ns}
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: homer
-          template:
-            metadata:
-              labels:
-                app: homer
-            spec:
-              containers:
-              - name: homer
-                image: b4bz/homer:v24.11.3
-                ports:
-                - containerPort: 8080
-                resources:
-                  requests:
-                    cpu: 10m
-                    memory: 16Mi
-                  limits:
-                    memory: 64Mi
-                volumeMounts:
-                - name: config
-                  mountPath: /www/assets/config.yml
-                  subPath: config.yml
-              volumes:
-              - name: config
-                configMap:
-                  name: homer-config
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: homer
-          namespace: ${ns}
-        spec:
-          selector:
-            app: homer
-          ports:
-          - port: 8080
-            targetPort: 8080
-        EOF
-
-                wait_for_deployment "${ns}" "homer" 120
-
-                create_ingress_route "homer" "${ns}" "$(hostname home)" "homer" "8080"
-
-                print_success "Homer" \
-                  "URL: https://$(hostname home)"
-
-                create_marker "${markerFile}"
-      '';
+k8s.createHelmRelease {
+  name = "homer";
+  namespace = "homer";
+  tier = "core";
+  chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
+  version = "4.6.1";
+  waitFor = "homer";
+  ingress = {
+    host = "home";
+    service = "homer";
+    port = 8080;
+  };
+  values = {
+    controllers.homer = {
+      strategy = "Recreate";
+      containers.main = {
+        image = {
+          repository = "b4bz/homer";
+          tag = "v24.11.3";
+        };
+        resources = {
+          requests = {
+            cpu = "10m";
+            memory = "16Mi";
+          };
+          limits.memory = "64Mi";
+        };
+      };
+    };
+    service.homer = {
+      controller = "homer";
+      ports.http = {
+        port = 8080;
+        targetPort = 8080;
+      };
+    };
+    configMaps.config = {
+      enabled = true;
+      data."config.yml" = homerConfigYaml;
+    };
+    persistence.config-file = {
+      enabled = true;
+      type = "configMap";
+      name = "homer";
+      advancedMounts.homer.main = [
+        {
+          path = "/www/assets/config.yml";
+          subPath = "config.yml";
+        }
+      ];
     };
   };
 }

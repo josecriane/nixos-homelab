@@ -1,0 +1,88 @@
+# Bookshelf (PennyDreadful) - arr-style ebook management
+# Init container pre-seeds /config/config.xml with the stable API key from
+# the bookshelf-api-key secret (created by arr-secrets-setup.service).
+# Config PVC + shared-data are both referenced via existingClaim so Helm
+# doesn't touch them during install/upgrade.
+defaultPodOptions:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0
+    runAsGroup: 0
+    fsGroup: __PGID__
+    fsGroupChangePolicy: OnRootMismatch
+controllers:
+  bookshelf:
+    strategy: Recreate
+    initContainers:
+      init-api-key:
+        image:
+          repository: busybox
+          tag: "1.37.0"
+        command: ["sh", "-c"]
+        args:
+          - |
+            API_KEY=$(cat /secrets/api-key)
+            if [ ! -f /config/config.xml ]; then
+              echo "Pre-seeding config.xml with stable API key..."
+              cat > /config/config.xml <<XMLEOF
+            <Config>
+              <ApiKey>${API_KEY}</ApiKey>
+              <AnalyticsEnabled>False</AnalyticsEnabled>
+            </Config>
+            XMLEOF
+              chown __PUID__:__PGID__ /config/config.xml
+              echo "config.xml created with stable API key"
+            else
+              CURRENT_KEY=$(sed -n 's/.*<ApiKey>\(.*\)<\/ApiKey>.*/\1/p' /config/config.xml)
+              if [ "$CURRENT_KEY" != "$API_KEY" ]; then
+                echo "Updating API key in existing config.xml..."
+                sed -i "s|<ApiKey>.*</ApiKey>|<ApiKey>${API_KEY}</ApiKey>|" /config/config.xml
+                echo "API key updated"
+              else
+                echo "config.xml API key matches secret, no change needed"
+              fi
+            fi
+    containers:
+      main:
+        image:
+          repository: ghcr.io/pennydreadful/bookshelf
+          tag: hardcover
+        env:
+          PUID: "__PUID__"
+          PGID: "__PGID__"
+          TZ: __TIMEZONE__
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+service:
+  bookshelf:
+    controller: bookshelf
+    ports:
+      http:
+        port: 8787
+        targetPort: 8787
+persistence:
+  config:
+    type: persistentVolumeClaim
+    existingClaim: bookshelf-config
+    globalMounts:
+      - path: /config
+  data:
+    type: persistentVolumeClaim
+    existingClaim: shared-data
+    advancedMounts:
+      bookshelf:
+        main:
+          - path: /data
+  api-key-secret:
+    type: secret
+    name: bookshelf-api-key
+    advancedMounts:
+      bookshelf:
+        init-api-key:
+          - path: /secrets
+            readOnly: true

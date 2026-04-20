@@ -1,0 +1,50 @@
+# Kavita - manga/comics/books reader
+# LinuxServer.io image. No init container for API key pre-seed (Kavita has its
+# own first-run bootstrap via /api/Account/register). Post-install setup
+# (admin user, libraries, OIDC) runs in kavita-config-setup.service.
+defaultPodOptions:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0
+    runAsGroup: 0
+    fsGroup: __PGID__
+    fsGroupChangePolicy: OnRootMismatch
+controllers:
+  kavita:
+    strategy: Recreate
+    containers:
+      main:
+        image:
+          repository: lscr.io/linuxserver/kavita
+          tag: "0.8.9"
+        env:
+          PUID: "__PUID__"
+          PGID: "__PGID__"
+          TZ: __TIMEZONE__
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+service:
+  kavita:
+    controller: kavita
+    ports:
+      http:
+        port: 5000
+        targetPort: 5000
+persistence:
+  config:
+    type: persistentVolumeClaim
+    existingClaim: kavita-config
+    globalMounts:
+      - path: /config
+  data:
+    type: persistentVolumeClaim
+    existingClaim: shared-data
+    advancedMounts:
+      kavita:
+        main:
+          - path: /data

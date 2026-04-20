@@ -1,0 +1,67 @@
+# Jellyfin - media server with VA-API hardware encoding
+# Privileged container (Pod Security Standard: privileged) with /dev/dri
+# hostPath mount for AMD/Intel GPU acceleration. supplementalGroups 26/303
+# correspond to the host's `video` and `render` groups.
+# Post-install setup (wizard, libraries, SSO plugin) runs in
+# jellyfin-config-setup.service.
+defaultPodOptions:
+  automountServiceAccountToken: false
+  nodeSelector:
+    kubernetes.io/hostname: imre
+  securityContext:
+    supplementalGroups:
+      - 26
+      - 303
+controllers:
+  jellyfin:
+    strategy: Recreate
+    containers:
+      main:
+        image:
+          repository: jellyfin/jellyfin
+          tag: "10.11.6"
+        securityContext:
+          privileged: true
+        env:
+          JELLYFIN_PublishedServerUrl: "https://__JELLYFIN_URL__"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            memory: 6Gi
+service:
+  jellyfin:
+    controller: jellyfin
+    ports:
+      http:
+        port: 8096
+        targetPort: 8096
+persistence:
+  config:
+    type: persistentVolumeClaim
+    existingClaim: jellyfin-config
+    globalMounts:
+      - path: /config
+  cache:
+    type: emptyDir
+    advancedMounts:
+      jellyfin:
+        main:
+          - path: /cache
+  data:
+    type: persistentVolumeClaim
+    existingClaim: shared-data
+    advancedMounts:
+      jellyfin:
+        main:
+          - path: /data
+            subPath: media
+  dri:
+    type: hostPath
+    hostPath: /dev/dri
+    hostPathType: Directory
+    advancedMounts:
+      jellyfin:
+        main:
+          - path: /dev/dri

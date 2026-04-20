@@ -34,24 +34,7 @@ in
       ./auth/sso.nix
 
       # Media
-      ./media/arr-stack.nix
-      ./media/arr-secrets.nix
-      ./media/arr-credentials.nix
-      ./media/arr-download-clients.nix
-      ./media/arr-prowlarr-sync.nix
-      ./media/arr-root-folders.nix
-      ./media/arr-naming.nix
-      ./media/lidarr-config.nix
-      ./media/bazarr-config.nix
-      ./media/jellyfin.nix
-      ./media/jellyfin-integration.nix
-      ./media/jellyseerr.nix
-      ./media/bazarr.nix
-      ./media/lidarr.nix
-      ./media/bookshelf.nix
-      ./media/flaresolverr.nix
-      ./media/recyclarr.nix
-      ./media/kavita.nix
+      ./media
 
       # Cloud
       ./cloud/vaultwarden.nix
@@ -66,11 +49,10 @@ in
       ./monitoring/loki.nix
 
       # Dashboard
-      ./dashboard/homer.nix
+      ./dashboard/homer
 
       # Knowledge
-      ./knowledge/kiwix.nix
-      ./knowledge/openstreetmap.nix
+      ./knowledge
     ]
     # Hardware/config-dependent modules stay conditional
     ++
@@ -87,9 +69,6 @@ in
         ]
     ++ lib.optionals (isBootstrap && (enabled "authentik") && anyNas) [
       ./auth/nas-apps.nix
-    ]
-    ++ lib.optionals (isBootstrap && (enabled "media") && anyNas) [
-      ./media/nas-integration.nix
     ]
     # service-manager imports on every node: image-import runs everywhere so the
     # scheduler can place the pod on any node; kubectl-driven setup inside the
