@@ -4,6 +4,7 @@
   lib,
   pkgs,
   serverConfig,
+  nodeConfig,
   nixos-k8s,
   ...
 }:
@@ -12,6 +13,7 @@ let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "service-manager";
   markerFile = "/var/lib/service-manager-setup-done";
+  isBootstrap = nodeConfig.bootstrap or false;
 
   svc = serverConfig.services or { };
   enabled = name: svc.${name} or false;
@@ -86,10 +88,41 @@ let
 in
 {
   systemd.services = {
+    # Image import runs on every node so the scheduler can place
+    # service-manager pods on any node in the cluster.
+    service-manager-image-import = {
+      description = "Import Service Manager container image into containerd";
+      after = [ "k3s.service" ];
+      requires = [ "k3s.service" ];
+      wantedBy = [ "multi-user.target" ];
+      restartTriggers = [ serviceManagerImage ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "service-manager-image-import" ''
+          set -e
+          for i in $(seq 1 60); do
+            [ -S /run/k3s/containerd/containerd.sock ] && break
+            sleep 2
+          done
+          echo "Importing Service Manager image..."
+          ${pkgs.k3s}/bin/k3s ctr images import ${serviceManagerImage}
+        '';
+      };
+    };
+  }
+  // lib.optionalAttrs isBootstrap {
     service-manager-setup = {
       description = "Setup Service Manager";
-      after = [ "k3s-storage.target" ];
-      requires = [ "k3s-storage.target" ];
+      after = [
+        "k3s-storage.target"
+        "service-manager-image-import.service"
+      ];
+      requires = [
+        "k3s-storage.target"
+        "service-manager-image-import.service"
+      ];
       wantedBy = [ "k3s-core.target" ];
       before = [ "k3s-core.target" ];
 
@@ -105,10 +138,6 @@ in
                   wait_for_traefik
                   wait_for_certificate
                   ensure_namespace "${ns}"
-
-                  # Import container image
-                  echo "Importing Service Manager image..."
-                  ${pkgs.k3s}/bin/k3s ctr images import ${serviceManagerImage}
 
                   # ServiceAccount + RBAC
                   cat <<'EOF' | $KUBECTL apply -f -
@@ -133,10 +162,16 @@ in
               resources: ["pods"]
               verbs: ["get", "list"]
             - apiGroups: [""]
-              resources: ["nodes"]
+              resources: ["pods"]
               verbs: ["get", "list"]
+            - apiGroups: [""]
+              resources: ["nodes"]
+              verbs: ["get", "list", "patch"]
             - apiGroups: ["metrics.k8s.io"]
               resources: ["nodes"]
+              verbs: ["get", "list"]
+            - apiGroups: ["traefik.io", "traefik.containo.us"]
+              resources: ["ingressroutes"]
               verbs: ["get", "list"]
           ---
           apiVersion: rbac.authorization.k8s.io/v1
@@ -227,7 +262,7 @@ in
       };
     };
   }
-  // lib.optionalAttrs (disabledNamespaces != [ ]) {
+  // lib.optionalAttrs isBootstrap {
     service-scaledown =
       let
         # Setup services that provision k8s workloads; scaledown must run after them
@@ -290,6 +325,21 @@ in
               echo "Preserving paused: daemonset $ns/$name"
               $KUBECTL patch "daemonset/$name" -n "$ns" \
                 -p '{"spec":{"template":{"spec":{"nodeSelector":{"non-existing":"true"}}}}}' 2>/dev/null || true
+            done
+
+            # Preferred-node annotation: re-apply soft nodeAffinity so the user's
+            # scheduling intent survives setup scripts that re-apply the spec.
+            echo "Enforcing preferred-node annotation..."
+            for kind in deployments statefulsets; do
+              $KUBECTL get "$kind" -A -o json 2>/dev/null | $JQ -r \
+                '.items[] | select(.metadata.annotations["homelab.k8s/preferred-node"] != null and .metadata.annotations["homelab.k8s/preferred-node"] != "")
+                 | "\(.metadata.namespace) \(.metadata.name) \(.metadata.annotations["homelab.k8s/preferred-node"])"' | \
+              while read -r ns name node; do
+                [ -z "$ns" ] && continue
+                echo "Pinning preference: $kind $ns/$name -> $node"
+                patch=$($JQ -nc --arg node "$node" '{spec:{template:{spec:{affinity:{nodeAffinity:{preferredDuringSchedulingIgnoredDuringExecution:[{weight:100,preference:{matchExpressions:[{key:"kubernetes.io/hostname",operator:"In",values:[$node]}]}}]}}}}}}')
+                $KUBECTL patch "$kind/$name" -n "$ns" --type=merge -p "$patch" 2>/dev/null || true
+              done
             done
 
             echo "Scale-down complete"

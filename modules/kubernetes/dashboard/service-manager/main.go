@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -25,19 +26,32 @@ type Config struct {
 }
 
 type ServiceStatus struct {
-	DisplayName string `json:"displayName"`
-	Name        string `json:"name"`
-	Namespace   string `json:"namespace"`
-	Group       string `json:"group"`
-	Kind        string `json:"kind"`
-	CanStop     bool   `json:"canStop"`
-	Replicas    int    `json:"replicas"`
-	Ready       bool   `json:"ready"`
-	RAMBytes    int64  `json:"ramBytes"`
+	DisplayName   string   `json:"displayName"`
+	Name          string   `json:"name"`
+	Namespace     string   `json:"namespace"`
+	Group         string   `json:"group"`
+	Kind          string   `json:"kind"`
+	CanStop       bool     `json:"canStop"`
+	Replicas      int      `json:"replicas"`
+	Ready         bool     `json:"ready"`
+	RAMBytes      int64    `json:"ramBytes"`
+	Nodes         []string `json:"nodes"`
+	URLs          []string `json:"urls"`
+	StatusDetail  string   `json:"statusDetail"`
+	PreferredNode string   `json:"preferredNode"`
+}
+
+type NodeStatus struct {
+	Name          string `json:"name"`
+	Ready         bool   `json:"ready"`
+	Unschedulable bool   `json:"unschedulable"`
+	RAMUsed       int64  `json:"ramUsed"`
+	RAMTotal      int64  `json:"ramTotal"`
 }
 
 type ServicesResponse struct {
 	Services []ServiceStatus `json:"services"`
+	Nodes    []NodeStatus    `json:"nodes"`
 	RAMUsed  int64           `json:"ramUsed"`
 	RAMTotal int64           `json:"ramTotal"`
 }
@@ -53,11 +67,28 @@ type GroupScaleRequest struct {
 	Replicas int    `json:"replicas"`
 }
 
+type CordonRequest struct {
+	Node   string `json:"node"`
+	Cordon bool   `json:"cordon"`
+}
+
+type PreferredNodeRequest struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Node      string `json:"node"`
+}
+
+const (
+	PausedAnnotation        = "homelab.k8s/user-paused"
+	PreferredNodeAnnotation = "homelab.k8s/preferred-node"
+)
+
 var (
-	k8sHost string
-	k8sHTTP *http.Client
-	cfg     Config
-	mu      sync.Mutex
+	k8sHost   string
+	k8sHTTP   *http.Client
+	cfg       Config
+	mu        sync.Mutex
+	hostRegex = regexp.MustCompile("Host\\(([^)]+)\\)")
 )
 
 func init() {
@@ -118,7 +149,6 @@ func groupName(ns string) string {
 	if name, ok := cfg.GroupNames[ns]; ok {
 		return name
 	}
-	// Title case the namespace name
 	parts := strings.Split(ns, "-")
 	for i, p := range parts {
 		if len(p) > 0 {
@@ -154,8 +184,9 @@ func deploymentDisplayName(name string) string {
 type k8sWorkload struct {
 	Kind     string `json:"kind"`
 	Metadata struct {
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
+		Name        string            `json:"name"`
+		Namespace   string            `json:"namespace"`
+		Annotations map[string]string `json:"annotations"`
 	} `json:"metadata"`
 	Spec struct {
 		Replicas *int `json:"replicas"`
@@ -197,10 +228,95 @@ func listAllWorkloads() []k8sWorkload {
 type podMetric struct {
 	Namespace string
 	PodName   string
+	Node      string
 	RAM       int64
 }
 
-func getPodMetricsAll() []podMetric {
+type podInfo struct {
+	Node    string
+	Phase   string
+	Reason  string
+	Message string
+}
+
+// listPodInfo queries /api/v1/pods once and returns per-pod node placement
+// plus the worst-case status reason (waiting/terminated state, or
+// PodScheduled=False for stuck-Pending pods).
+func listPodInfo() map[string]podInfo {
+	resp, err := k8sRequest("GET", "/api/v1/pods", nil)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+	var result struct {
+		Items []struct {
+			Metadata struct {
+				Name      string `json:"name"`
+				Namespace string `json:"namespace"`
+			} `json:"metadata"`
+			Spec struct {
+				NodeName string `json:"nodeName"`
+			} `json:"spec"`
+			Status struct {
+				Phase             string `json:"phase"`
+				ContainerStatuses []struct {
+					State struct {
+						Waiting *struct {
+							Reason  string `json:"reason"`
+							Message string `json:"message"`
+						} `json:"waiting"`
+						Terminated *struct {
+							Reason  string `json:"reason"`
+							Message string `json:"message"`
+						} `json:"terminated"`
+					} `json:"state"`
+				} `json:"containerStatuses"`
+				Conditions []struct {
+					Type   string `json:"type"`
+					Status string `json:"status"`
+					Reason string `json:"reason"`
+				} `json:"conditions"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+	m := make(map[string]podInfo, len(result.Items))
+	for _, p := range result.Items {
+		info := podInfo{Node: p.Spec.NodeName, Phase: p.Status.Phase}
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+				info.Reason = cs.State.Waiting.Reason
+				info.Message = cs.State.Waiting.Message
+				break
+			}
+			if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" && cs.State.Terminated.Reason != "Completed" {
+				info.Reason = cs.State.Terminated.Reason
+				info.Message = cs.State.Terminated.Message
+				break
+			}
+		}
+		if info.Reason == "" && info.Phase == "Pending" {
+			for _, c := range p.Status.Conditions {
+				if c.Type == "PodScheduled" && c.Status == "False" {
+					info.Reason = c.Reason
+					if info.Reason == "" {
+						info.Reason = "NotScheduled"
+					}
+					break
+				}
+			}
+		}
+		m[p.Metadata.Namespace+"/"+p.Metadata.Name] = info
+	}
+	return m
+}
+
+func getPodMetricsAll(nodeByPod map[string]podInfo) []podMetric {
 	resp, err := k8sRequest("GET", "/apis/metrics.k8s.io/v1beta1/pods", nil)
 	if err != nil {
 		return nil
@@ -234,27 +350,87 @@ func getPodMetricsAll() []podMetric {
 		metrics = append(metrics, podMetric{
 			Namespace: pod.Metadata.Namespace,
 			PodName:   pod.Metadata.Name,
+			Node:      nodeByPod[pod.Metadata.Namespace+"/"+pod.Metadata.Name].Node,
 			RAM:       ram,
 		})
 	}
 	return metrics
 }
 
-func matchRAMToDeployments(pods []podMetric, deploymentNames map[string]bool) map[string]int64 {
-	ramMap := make(map[string]int64)
-	for _, pod := range pods {
-		// Pod names follow: {deployment}-{replicaset-hash}-{pod-hash}
-		// Try matching against known deployment names (longest match first)
+type workloadUsage struct {
+	RAM          int64
+	Nodes        map[string]bool
+	StatusDetail string
+}
+
+// matchPodsToWorkloads aggregates per-deployment RAM, node placement, and
+// status issues. Pods are matched to workloads by deployment-name prefix on
+// the pod name (stable because ReplicaSet hashes keep the prefix intact).
+func matchPodsToWorkloads(podInfos map[string]podInfo, pods []podMetric, deploymentNames map[string]bool) map[string]*workloadUsage {
+	usage := make(map[string]*workloadUsage)
+
+	// Walk all pods once to aggregate RAM + nodes + worst status per workload.
+	// podInfos covers every pod (metrics might miss some); we iterate both.
+	matchPod := func(ns, podName string) (string, bool) {
 		for key := range deploymentNames {
 			parts := strings.SplitN(key, "/", 2)
-			ns, depName := parts[0], parts[1]
-			if pod.Namespace == ns && strings.HasPrefix(pod.PodName, depName+"-") {
-				ramMap[key] += pod.RAM
-				break
+			if parts[0] != ns {
+				continue
+			}
+			if strings.HasPrefix(podName, parts[1]+"-") {
+				return key, true
+			}
+		}
+		return "", false
+	}
+
+	for fullName, info := range podInfos {
+		parts := strings.SplitN(fullName, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key, ok := matchPod(parts[0], parts[1])
+		if !ok {
+			continue
+		}
+		u, exists := usage[key]
+		if !exists {
+			u = &workloadUsage{Nodes: make(map[string]bool)}
+			usage[key] = u
+		}
+		if info.Node != "" {
+			u.Nodes[info.Node] = true
+		}
+		if u.StatusDetail == "" && info.Reason != "" {
+			u.StatusDetail = info.Reason
+			if info.Message != "" && len(info.Message) < 120 {
+				u.StatusDetail += ": " + info.Message
 			}
 		}
 	}
-	return ramMap
+
+	for _, pod := range pods {
+		key, ok := matchPod(pod.Namespace, pod.PodName)
+		if !ok {
+			continue
+		}
+		u, exists := usage[key]
+		if !exists {
+			u = &workloadUsage{Nodes: make(map[string]bool)}
+			usage[key] = u
+		}
+		u.RAM += pod.RAM
+	}
+	return usage
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func parseK8sMemory(s string) int64 {
@@ -282,45 +458,153 @@ func parseK8sMemory(s string) int64 {
 	return v
 }
 
-func getNodeRAM() (used int64, total int64) {
+// listNodes returns per-node capacity + Ready condition + cordoned state.
+// metrics.k8s.io is queried separately to fill in RAMUsed (best-effort).
+func listNodes() []NodeStatus {
 	resp, err := k8sRequest("GET", "/api/v1/nodes", nil)
 	if err != nil {
-		return 0, 0
+		return nil
 	}
 	defer resp.Body.Close()
 	var nodes struct {
 		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Spec struct {
+				Unschedulable bool `json:"unschedulable"`
+			} `json:"spec"`
 			Status struct {
-				Capacity map[string]string `json:"capacity"`
+				Capacity   map[string]string `json:"capacity"`
+				Conditions []struct {
+					Type   string `json:"type"`
+					Status string `json:"status"`
+				} `json:"conditions"`
 			} `json:"status"`
 		} `json:"items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
-		return 0, 0
+		return nil
 	}
+	result := make([]NodeStatus, 0, len(nodes.Items))
 	for _, n := range nodes.Items {
-		total += parseK8sMemory(n.Status.Capacity["memory"])
+		ready := false
+		for _, c := range n.Status.Conditions {
+			if c.Type == "Ready" && c.Status == "True" {
+				ready = true
+				break
+			}
+		}
+		result = append(result, NodeStatus{
+			Name:          n.Metadata.Name,
+			Ready:         ready,
+			Unschedulable: n.Spec.Unschedulable,
+			RAMTotal:      parseK8sMemory(n.Status.Capacity["memory"]),
+		})
 	}
 
 	resp2, err := k8sRequest("GET", "/apis/metrics.k8s.io/v1beta1/nodes", nil)
-	if err != nil {
-		return 0, total
+	if err == nil {
+		defer resp2.Body.Close()
+		var metrics struct {
+			Items []struct {
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+				Usage struct {
+					Memory string `json:"memory"`
+				} `json:"usage"`
+			} `json:"items"`
+		}
+		if json.NewDecoder(resp2.Body).Decode(&metrics) == nil {
+			used := make(map[string]int64, len(metrics.Items))
+			for _, m := range metrics.Items {
+				used[m.Metadata.Name] = parseK8sMemory(m.Usage.Memory)
+			}
+			for i := range result {
+				result[i].RAMUsed = used[result[i].Name]
+			}
+		}
 	}
-	defer resp2.Body.Close()
-	var metrics struct {
+
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
+// listIngressHosts walks every Traefik IngressRoute and maps each referenced
+// backend service (by ns/name) to the list of Host(`…`) values in its match
+// rules. The deployment name equals the service name by convention in this
+// homelab, so we can correlate ingress hosts with deployments directly.
+func listIngressHosts() map[string][]string {
+	result := make(map[string][]string)
+	resp, err := k8sRequest("GET", "/apis/traefik.io/v1alpha1/ingressroutes", nil)
+	if err != nil {
+		return result
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return result
+	}
+	var routes struct {
 		Items []struct {
-			Usage struct {
-				Memory string `json:"memory"`
-			} `json:"usage"`
+			Metadata struct {
+				Namespace string `json:"namespace"`
+			} `json:"metadata"`
+			Spec struct {
+				Routes []struct {
+					Match    string `json:"match"`
+					Services []struct {
+						Name string `json:"name"`
+					} `json:"services"`
+				} `json:"routes"`
+			} `json:"spec"`
 		} `json:"items"`
 	}
-	if err := json.NewDecoder(resp2.Body).Decode(&metrics); err != nil {
-		return 0, total
+	if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {
+		return result
 	}
-	for _, m := range metrics.Items {
-		used += parseK8sMemory(m.Usage.Memory)
+	for _, ir := range routes.Items {
+		ns := ir.Metadata.Namespace
+		for _, route := range ir.Spec.Routes {
+			hosts := parseHosts(route.Match)
+			if len(hosts) == 0 {
+				continue
+			}
+			for _, svc := range route.Services {
+				key := ns + "/" + svc.Name
+				result[key] = appendUnique(result[key], hosts)
+			}
+		}
 	}
-	return used, total
+	return result
+}
+
+func parseHosts(match string) []string {
+	var hosts []string
+	for _, m := range hostRegex.FindAllStringSubmatch(match, -1) {
+		for _, part := range strings.Split(m[1], ",") {
+			h := strings.TrimSpace(part)
+			h = strings.Trim(h, "`\"' ")
+			if h != "" {
+				hosts = append(hosts, h)
+			}
+		}
+	}
+	return hosts
+}
+
+func appendUnique(dst []string, src []string) []string {
+	seen := make(map[string]bool, len(dst))
+	for _, h := range dst {
+		seen[h] = true
+	}
+	for _, h := range src {
+		if !seen[h] {
+			seen[h] = true
+			dst = append(dst, h)
+		}
+	}
+	return dst
 }
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -336,17 +620,18 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deployments := listAllWorkloads()
-	podMetrics := getPodMetricsAll()
-	ramUsed, ramTotal := getNodeRAM()
+	podInfos := listPodInfo()
+	podMetrics := getPodMetricsAll(podInfos)
+	nodes := listNodes()
+	ingressHosts := listIngressHosts()
 
-	// Build set of deployment keys for RAM matching
 	depKeys := make(map[string]bool)
 	for _, d := range deployments {
 		if !isHidden(d.Metadata.Namespace) {
 			depKeys[d.Metadata.Namespace+"/"+d.Metadata.Name] = true
 		}
 	}
-	ramMap := matchRAMToDeployments(podMetrics, depKeys)
+	usage := matchPodsToWorkloads(podInfos, podMetrics, depKeys)
 
 	var statuses []ServiceStatus
 	for _, d := range deployments {
@@ -358,20 +643,32 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 		if d.Spec.Replicas != nil {
 			replicas = *d.Spec.Replicas
 		}
+		key := ns + "/" + d.Metadata.Name
+		var ram int64
+		var nodeList []string
+		var detail string
+		if u, ok := usage[key]; ok {
+			ram = u.RAM
+			nodeList = sortedKeys(u.Nodes)
+			detail = u.StatusDetail
+		}
 		statuses = append(statuses, ServiceStatus{
-			DisplayName: deploymentDisplayName(d.Metadata.Name),
-			Name:        d.Metadata.Name,
-			Namespace:   ns,
-			Group:       groupName(ns),
-			Kind:        d.Kind,
-			CanStop:     !isNoStop(ns, d.Metadata.Name),
-			Replicas:    replicas,
-			Ready:       d.Status.ReadyReplicas > 0,
-			RAMBytes:    ramMap[ns+"/"+d.Metadata.Name],
+			DisplayName:   deploymentDisplayName(d.Metadata.Name),
+			Name:          d.Metadata.Name,
+			Namespace:     ns,
+			Group:         groupName(ns),
+			Kind:          d.Kind,
+			CanStop:       !isNoStop(ns, d.Metadata.Name),
+			Replicas:      replicas,
+			Ready:         d.Status.ReadyReplicas > 0,
+			RAMBytes:      ram,
+			Nodes:         nodeList,
+			URLs:          ingressHosts[key],
+			StatusDetail:  detail,
+			PreferredNode: d.Metadata.Annotations[PreferredNodeAnnotation],
 		})
 	}
 
-	// Sort by group then name
 	sort.Slice(statuses, func(i, j int) bool {
 		if statuses[i].Group != statuses[j].Group {
 			return statuses[i].Group < statuses[j].Group
@@ -379,10 +676,16 @@ func handleGetServices(w http.ResponseWriter, r *http.Request) {
 		return statuses[i].Name < statuses[j].Name
 	})
 
+	var totalUsed, totalCap int64
+	for _, n := range nodes {
+		totalUsed += n.RAMUsed
+		totalCap += n.RAMTotal
+	}
 	resp := ServicesResponse{
 		Services: statuses,
-		RAMUsed:  ramUsed,
-		RAMTotal: ramTotal,
+		Nodes:    nodes,
+		RAMUsed:  totalUsed,
+		RAMTotal: totalCap,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -481,9 +784,15 @@ func findWorkloadKind(ns, name string) string {
 	return "Deployment"
 }
 
-// PausedAnnotation marks a workload as user-paused so setup services don't
-// resurrect it on rebuild. `service-scaledown` honors it.
-const PausedAnnotation = "homelab.k8s/user-paused"
+func resourceForKind(kind string) string {
+	switch kind {
+	case "StatefulSet":
+		return "statefulsets"
+	case "DaemonSet":
+		return "daemonsets"
+	}
+	return "deployments"
+}
 
 func patchPausedAnnotation(ns, resource, name string, paused bool) error {
 	var value string
@@ -513,12 +822,7 @@ func scaleDeployment(ns, name string, replicas int) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	resource := "deployments"
-	if kind == "StatefulSet" {
-		resource = "statefulsets"
-	} else if kind == "DaemonSet" {
-		resource = "daemonsets"
-	}
+	resource := resourceForKind(kind)
 
 	if kind == "DaemonSet" {
 		var payload string
@@ -570,12 +874,7 @@ func restartDeployment(ns, name string) error {
 
 	mu.Lock()
 	defer mu.Unlock()
-	resource := "deployments"
-	if kind == "StatefulSet" {
-		resource = "statefulsets"
-	} else if kind == "DaemonSet" {
-		resource = "daemonsets"
-	}
+	resource := resourceForKind(kind)
 
 	timestamp := time.Now().Format(time.RFC3339)
 	payload := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`, timestamp)
@@ -610,6 +909,106 @@ func handleRestartService(w http.ResponseWriter, r *http.Request) {
 	}
 	err := restartDeployment(req.Namespace, req.Name)
 	if err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func handleCordonNode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	var req CordonRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request"}`, 400)
+		return
+	}
+	if req.Node == "" {
+		http.Error(w, `{"error":"node required"}`, 400)
+		return
+	}
+	payload := fmt.Sprintf(`{"spec":{"unschedulable":%t}}`, req.Cordon)
+	resp, err := k8sRequest("PATCH", "/api/v1/nodes/"+req.Node, strings.NewReader(payload))
+	if err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
+		return
+	}
+	state := "uncordoned"
+	if req.Cordon {
+		state = "cordoned"
+	}
+	log.Printf("Node %s %s", req.Node, state)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// setPreferredNode writes both the homelab.k8s/preferred-node annotation
+// (survives as documentation) and the matching soft nodeAffinity on the pod
+// template (takes scheduling effect). On rebuild the setup scripts re-apply
+// the Deployment, so service-scaledown re-patches the affinity from the
+// annotation to keep scheduling intent across rebuilds.
+func setPreferredNode(ns, name, node string) error {
+	kind := findWorkloadKind(ns, name)
+	if kind == "DaemonSet" {
+		return fmt.Errorf("preferred node not supported for DaemonSets")
+	}
+	resource := resourceForKind(kind)
+
+	var annotationVal, affinity string
+	if node == "" {
+		annotationVal = "null"
+		affinity = "null"
+	} else {
+		annotationVal = fmt.Sprintf(`"%s"`, node)
+		affinity = fmt.Sprintf(
+			`{"nodeAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"preference":{"matchExpressions":[{"key":"kubernetes.io/hostname","operator":"In","values":["%s"]}]}}]}}`,
+			node)
+	}
+	payload := fmt.Sprintf(
+		`{"metadata":{"annotations":{"%s":%s}},"spec":{"template":{"spec":{"affinity":%s}}}}`,
+		PreferredNodeAnnotation, annotationVal, affinity)
+	resp, err := k8sRequest("PATCH",
+		fmt.Sprintf("/apis/apps/v1/namespaces/%s/%s/%s", ns, resource, name),
+		strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("k8s API error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("patch failed (%d): %s", resp.StatusCode, string(body))
+	}
+	log.Printf("Service %s/%s preferred node set to %q", ns, name, node)
+	return nil
+}
+
+func handleSetPreferredNode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	var req PreferredNodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request"}`, 400)
+		return
+	}
+	if isHidden(req.Namespace) {
+		http.Error(w, `{"error":"namespace not managed"}`, 403)
+		return
+	}
+	if err := setPreferredNode(req.Namespace, req.Name, req.Node); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -682,7 +1081,9 @@ func main() {
 	http.HandleFunc("/api/services", handleGetServices)
 	http.HandleFunc("/api/services/scale", handleScaleService)
 	http.HandleFunc("/api/services/restart", handleRestartService)
+	http.HandleFunc("/api/services/preferred-node", handleSetPreferredNode)
 	http.HandleFunc("/api/groups/scale", handleScaleGroup)
+	http.HandleFunc("/api/nodes/cordon", handleCordonNode)
 	http.HandleFunc("/api/ping/", handlePing)
 
 	log.Println("Service Manager listening on :8080")

@@ -67,7 +67,6 @@ in
 
       # Dashboard
       ./dashboard/homer.nix
-      ./dashboard/service-manager.nix
 
       # Knowledge
       ./knowledge/kiwix.nix
@@ -91,5 +90,11 @@ in
     ]
     ++ lib.optionals (isBootstrap && (enabled "media") && anyNas) [
       ./media/nas-integration.nix
+    ]
+    # service-manager imports on every node: image-import runs everywhere so the
+    # scheduler can place the pod on any node; kubectl-driven setup inside the
+    # module is gated by isBootstrap.
+    ++ [
+      ./dashboard/service-manager.nix
     ];
 }
