@@ -30,19 +30,22 @@
       # Homelab defaults layered onto raw clusterConfig. Upstream modules
       # are inconsistent about default cert provider (tls-secret.nix defaults
       # to "manual" while traefik.nix defaults to "acme"), so pin "acme" here.
-      withHomelabDefaults = cfg: cfg // {
-        kubernetes = {
-          engine = "k3s";
-          cni = "flannel";
-          podCidr = "10.42.0.0/16";
-          serviceCidr = "10.43.0.0/16";
-        }
-        // (cfg.kubernetes or { });
-        certificates = {
-          provider = "acme";
-        }
-        // (cfg.certificates or { });
-      };
+      withHomelabDefaults =
+        cfg:
+        cfg
+        // {
+          kubernetes = {
+            engine = "k3s";
+            cni = "flannel";
+            podCidr = "10.42.0.0/16";
+            serviceCidr = "10.43.0.0/16";
+          }
+          // (cfg.kubernetes or { });
+          certificates = {
+            provider = "acme";
+          }
+          // (cfg.certificates or { });
+        };
 
       mkHomelab =
         {
@@ -69,9 +72,7 @@
 
       bootstrapOf =
         cfg:
-        builtins.head (
-          builtins.attrNames (nixpkgs.lib.filterAttrs (_: n: n.bootstrap or false) cfg.nodes)
-        );
+        builtins.head (builtins.attrNames (nixpkgs.lib.filterAttrs (_: n: n.bootstrap or false) cfg.nodes));
 
       hasLocalConfig = builtins.pathExists "${self}/config.nix";
       projectDir = builtins.getEnv "PWD";
