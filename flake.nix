@@ -111,6 +111,8 @@
 
       nixosConfigurations = standaloneConfigs;
 
+      apps = nixos-k8s.apps;
+
       formatter = nixos-k8s.formatter;
 
       devShells = nixos-k8s.devShells;

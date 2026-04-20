@@ -1,13 +1,11 @@
 # NixOS Homelab - K3s homelab on NixOS
 # Wraps nixos-k8s upstream tooling with homelab-specific glue (--impure,
-# marker cleanup, on-server backup commands).
+# marker cleanup, on-server backup commands). Upstream scripts are invoked
+# through flake apps (`nix run .#install` etc.), no sibling checkout needed.
 
 FLAKE    := .
 NIX_EVAL := nix eval --raw --impure
-
-# Upstream repo (scripts invoked by `make install`, `make unlock`, etc.)
-# Override with NIXOS_K8S=... if the path differs on your machine.
-NIXOS_K8S ?= $(realpath $(CURDIR)/../nixos-k8s)
+NIX_RUN  := PROJECT_DIR=$(CURDIR) nix run $(FLAKE)
 
 ADMIN = $(shell $(NIX_EVAL) --expr '(import ./config.nix).adminUser')
 
@@ -17,7 +15,7 @@ node-ip = $(shell $(NIX_EVAL) --expr '(import ./config.nix).nodes.$(1).ip')
 # Bootstrap node name (the one with bootstrap=true)
 bootstrap-node = $(shell $(NIX_EVAL) --expr 'let c = import ./config.nix; in builtins.head (builtins.filter (n: c.nodes.$${n}.bootstrap or false) (builtins.attrNames c.nodes))')
 
-.PHONY: help setup install deploy deploy-all bootstrap ssh logs status \
+.PHONY: help setup add-node install deploy deploy-all bootstrap ssh logs status \
         unlock enroll-tpm reinstall check fmt shell clean \
         backup-now backup-status backup-restore
 
@@ -28,11 +26,14 @@ help: ## Show this help
 setup: ## Run interactive setup wizard (generates config.nix + secrets)
 	@./scripts/setup.sh
 
+add-node: config.nix ## Add a new node to config.nix: make add-node [NAME=x] [IP=x.x.x.x] [ROLE=agent]
+	@$(NIX_RUN)#add-node -- $(NAME) $(IP) $(ROLE)
+
 install: config.nix ## Install a node: make install NODE=imre [IP=<live-ip>]
 	@[ -n "$(NODE)" ] || { echo "Usage: make install NODE=<name> [IP=<live-usb-ip>]"; exit 1; }
 	@NODE_IP=$${IP:-$(call node-ip,$(NODE))}; \
 	echo "Target: $$NODE_IP (node: $(NODE))"; \
-	PROJECT_DIR=$(CURDIR) $(NIXOS_K8S)/scripts/install.sh $(NODE) $$NODE_IP
+	$(NIX_RUN)#install -- $(NODE) $$NODE_IP
 
 deploy: config.nix ## Deploy to a node: make deploy [NODE=imre]
 	@_NODE=$${NODE:-$(bootstrap-node)}; \
@@ -79,11 +80,11 @@ logs: config.nix ## Show K3s logs: make logs [NODE=imre]
 
 unlock: config.nix ## SSH-unlock a node's LUKS disk: make unlock NODE=imre
 	@[ -n "$(NODE)" ] || { echo "Usage: make unlock NODE=<name>"; exit 1; }
-	@PROJECT_DIR=$(CURDIR) $(NIXOS_K8S)/scripts/unlock.sh $(NODE)
+	@$(NIX_RUN)#unlock -- $(NODE)
 
 enroll-tpm: config.nix ## Enroll TPM2 for auto-unlock: make enroll-tpm NODE=imre
 	@[ -n "$(NODE)" ] || { echo "Usage: make enroll-tpm NODE=<name>"; exit 1; }
-	@PROJECT_DIR=$(CURDIR) $(NIXOS_K8S)/scripts/enroll-tpm.sh $(NODE)
+	@$(NIX_RUN)#enroll-tpm -- $(NODE)
 
 reinstall: config.nix ## Force reinstall a service: make reinstall SVC=jellyfin [NODE=imre]
 	@[ -n "$(SVC)" ] || { echo "Usage: make reinstall SVC=<name> [NODE=<name>]"; exit 1; }
