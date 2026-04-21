@@ -17,11 +17,6 @@ let
   ns = "media";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
   oidcMarkerFile = "/var/lib/jellyseerr-oidc-config-done";
-  values = pkgs.writeText "jellyseerr-values.yaml" (
-    builtins.replaceStrings [ "__TIMEZONE__" ] [ serverConfig.timezone ] (
-      builtins.readFile ./values.yaml
-    )
-  );
 
   release = k8s.createHelmRelease {
     name = "jellyseerr";
@@ -29,7 +24,7 @@ let
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
-    valuesFile = values;
+    valuesFile = ./values.yaml;
     waitFor = "jellyseerr";
     ingress = {
       host = "requests";

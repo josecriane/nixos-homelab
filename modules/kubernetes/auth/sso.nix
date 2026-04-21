@@ -61,30 +61,13 @@ in
                 else
                   echo "Creating/updating CoreDNS configuration..."
 
-                  # Create custom CoreDNS configuration using template plugin
-                  cat <<EOF | $KUBECTL apply -f -
-        apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          name: coredns-custom
-          namespace: kube-system
-        data:
-          local-dns.server: |
-            ${domain}:53 {
-              errors
-              cache 30
-              template IN A ${domain} {
-                match "^(.+\\.)?${domain}\\.$"
-                answer "{{ .Name }} 60 IN A ${serverConfig.traefikIP}"
-                fallthrough
-              }
-              template IN AAAA ${domain} {
-                match "^(.+\\.)?${domain}\\.$"
-                rcode NOERROR
-                fallthrough
-              }
-            }
-        EOF
+                  ${k8s.applyManifestsScript {
+                    name = "sso-coredns-custom";
+                    manifests = [ ./coredns-custom.yaml ];
+                    substitutions = {
+                      TRAEFIK_IP = serverConfig.traefikIP;
+                    };
+                  }}
 
                   # Restart CoreDNS to pick up custom config (with grace period)
                   echo "Restarting CoreDNS..."
@@ -447,28 +430,10 @@ in
                 # ============================================
                 # CREATE FORWARDAUTH MIDDLEWARE
                 # ============================================
-                if ! $KUBECTL get middleware -n traefik-system forward-auth &>/dev/null; then
-                  echo "Creating ForwardAuth middleware..."
-                  cat <<EOF | $KUBECTL apply -f -
-        apiVersion: traefik.io/v1alpha1
-        kind: Middleware
-        metadata:
-          name: forward-auth
-          namespace: traefik-system
-        spec:
-          forwardAuth:
-            address: http://authentik-server.authentik.svc.cluster.local/outpost.goauthentik.io/auth/traefik
-            trustForwardHeader: true
-            authResponseHeaders:
-              - X-authentik-username
-              - X-authentik-groups
-              - X-authentik-email
-              - X-authentik-name
-              - X-authentik-uid
-        EOF
-                else
-                  echo "ForwardAuth middleware: exists"
-                fi
+                ${k8s.applyManifestsScript {
+                  name = "sso-forward-auth";
+                  manifests = [ ./forward-auth-middleware.yaml ];
+                }}
 
                 # ============================================
                 # CREATE FORWARDAUTH PROXY PROVIDERS

@@ -317,20 +317,13 @@ in
                 fi
 
                 # IngressRoute with headers middleware
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: traefik.io/v1alpha1
-        kind: Middleware
-        metadata:
-          name: nextcloud-headers
-          namespace: ${ns}
-        spec:
-          headers:
-            stsSeconds: 31536000
-            stsIncludeSubdomains: true
-            stsPreload: true
-            customRequestHeaders:
-              X-Forwarded-Proto: https
-        EOF
+                ${k8s.applyManifestsScript {
+                  name = "nextcloud";
+                  manifests = [ ./manifests.yaml ];
+                  substitutions = {
+                    NAMESPACE = ns;
+                  };
+                }}
 
                 create_ingress_route "nextcloud" "${ns}" "$(hostname cloud)" "nextcloud" "8080" "nextcloud-headers:${ns}"
 

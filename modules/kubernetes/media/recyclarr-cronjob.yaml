@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: recyclarr
+  namespace: __NAMESPACE__
+spec:
+  schedule: "0 */12 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: recyclarr
+            image: ghcr.io/recyclarr/recyclarr:8
+            command: ["recyclarr", "sync"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            volumeMounts:
+            - name: config
+              mountPath: /config/recyclarr.yml
+              subPath: recyclarr.yml
+            - name: settings
+              mountPath: /config/settings.yml
+              subPath: settings.yml
+            - name: cf-radarr
+              mountPath: /config/custom-formats/radarr/language-not-spanish.json
+              subPath: language-not-spanish.json
+            - name: cf-sonarr
+              mountPath: /config/custom-formats/sonarr/language-not-spanish.json
+              subPath: language-not-spanish.json
+          volumes:
+          - name: config
+            configMap:
+              name: recyclarr-config
+          - name: settings
+            configMap:
+              name: recyclarr-settings
+          - name: cf-radarr
+            configMap:
+              name: recyclarr-custom-formats
+          - name: cf-sonarr
+            configMap:
+              name: recyclarr-custom-formats

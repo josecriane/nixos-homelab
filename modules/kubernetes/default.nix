@@ -1,79 +1,17 @@
 {
-  config,
-  lib,
-  pkgs,
-  serverConfig,
-  nodeConfig,
-  ...
-}:
-
-let
-  svc = serverConfig.services or { };
-  enabled = name: svc.${name} or false;
-  nas = serverConfig.nas or { };
-  anyNas =
-    (builtins.length (builtins.attrNames (lib.filterAttrs (_: c: c.enabled or false) nas))) > 0;
-  isBootstrap = nodeConfig.bootstrap or false;
-in
-{
   # Upstream's modules/kubernetes/default.nix (loaded by nixos-k8s.lib.mkCluster)
   # already provides K3s, MetalLB, Traefik, cert-manager, NFS mounts, cleanup,
   # nfs-storage and systemd-targets. Homelab only adds its own services on top.
-  # All cluster-service modules are bootstrap-only: agents just run kubelet.
-  imports =
-    lib.optionals isBootstrap [
-      # Homelab-specific overlay: configures upstream nfs-storage + adds cloud PVs.
-      ./infrastructure/nfs-storage.nix
-      ./infrastructure/nfs-storage-cloud.nix
-      ./infrastructure/cleanup-services.nix
-
-      ./backup/restic.nix
-
-      # Auth
-      ./auth/authentik.nix
-      ./auth/sso.nix
-
-      # Media
-      ./media
-
-      # Cloud
-      ./cloud/vaultwarden.nix
-      ./cloud/vaultwarden-admin.nix
-      ./cloud/vaultwarden-sync.nix
-      ./cloud/nextcloud.nix
-      ./cloud/immich.nix
-      ./cloud/syncthing.nix
-
-      # Monitoring
-      ./monitoring/grafana-prometheus.nix
-      ./monitoring/loki.nix
-
-      # Dashboard
-      ./dashboard/homer
-
-      # Knowledge
-      ./knowledge
-    ]
-    # Hardware/config-dependent modules stay conditional
-    ++
-      lib.optionals
-        (isBootstrap && (enabled "authentik") && (serverConfig.authentik.ldap.enable or false))
-        [
-          ./auth/ldap.nix
-        ]
-    ++
-      lib.optionals
-        (isBootstrap && (enabled "authentik") && (serverConfig.authentik.bootstrapUsers or { }) != { })
-        [
-          ./auth/authentik-users.nix
-        ]
-    ++ lib.optionals (isBootstrap && (enabled "authentik") && anyNas) [
-      ./auth/nas-apps.nix
-    ]
-    # service-manager imports on every node: image-import runs everywhere so the
-    # scheduler can place the pod on any node; kubectl-driven setup inside the
-    # module is gated by isBootstrap.
-    ++ [
-      ./dashboard/service-manager.nix
-    ];
+  # Each category's default.nix gates its modules on nodeConfig.bootstrap and
+  # serverConfig.services toggles.
+  imports = [
+    ./auth
+    ./backup
+    ./cloud
+    ./dashboard
+    ./infrastructure
+    ./knowledge
+    ./media
+    ./monitoring
+  ];
 }

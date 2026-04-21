@@ -10,8 +10,6 @@
 
 let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
-  puid = toString (serverConfig.puid or 1000);
-  pgid = toString (serverConfig.pgid or 1000);
 
   mkArrRelease =
     {
@@ -42,48 +40,25 @@ let
         else
           "";
 
-      values = pkgs.writeText "${name}-values.yaml" (
-        builtins.replaceStrings
-          [
-            "__NAME__"
-            "__IMAGE_REPO__"
-            "__IMAGE_TAG__"
-            "__PORT__"
-            "__CONFIG_PVC__"
-            "__SECRET__"
-            "__EXTRA_PERSISTENCE__"
-            "__CPU_REQ__"
-            "__MEM_REQ__"
-            "__MEM_LIM__"
-            "__TIMEZONE__"
-            "__PUID__"
-            "__PGID__"
-          ]
-          [
-            name
-            imageRepo
-            imageTag
-            (toString port)
-            configPvc
-            apiKeySecret
-            extraPersistence
-            cpuReq
-            memReq
-            memLim
-            serverConfig.timezone
-            puid
-            pgid
-          ]
-          (builtins.readFile ./arr-values.yaml)
-      );
-
       release = k8s.createHelmRelease {
         inherit name;
         namespace = "media";
         tier = "apps";
         chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
         version = "4.6.1";
-        valuesFile = values;
+        valuesFile = ./arr-values.yaml;
+        substitutions = {
+          NAME = name;
+          IMAGE_REPO = imageRepo;
+          IMAGE_TAG = imageTag;
+          PORT = port;
+          CONFIG_PVC = configPvc;
+          SECRET = apiKeySecret;
+          EXTRA_PERSISTENCE = extraPersistence;
+          CPU_REQ = cpuReq;
+          MEM_REQ = memReq;
+          MEM_LIM = memLim;
+        };
         waitFor = name;
         ingress = {
           host = ingressHost;

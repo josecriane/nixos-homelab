@@ -12,12 +12,6 @@
 
 let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
-  puid = toString (serverConfig.puid or 1000);
-  pgid = toString (serverConfig.pgid or 1000);
-  values = pkgs.writeText "bazarr-values.yaml" (
-    builtins.replaceStrings [ "__TIMEZONE__" "__PUID__" "__PGID__" ] [ serverConfig.timezone puid pgid ]
-      (builtins.readFile ./values.yaml)
-  );
 
   release = k8s.createHelmRelease {
     name = "bazarr";
@@ -25,7 +19,7 @@ let
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
-    valuesFile = values;
+    valuesFile = ./values.yaml;
     waitFor = "bazarr";
     ingress = {
       host = "bazarr";

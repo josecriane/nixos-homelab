@@ -40,6 +40,10 @@
     dashboard = true;
     kiwix = false;
     openstreetmap = false;
+    # Upstream toggles (from nixos-k8s): browser-based K8s workload control
+    # panel and the Traefik dashboard IngressRoute.
+    service-manager = false;
+    traefikDashboard = false;
   };
 
   authentik = {

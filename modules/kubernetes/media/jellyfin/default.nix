@@ -17,11 +17,6 @@ let
   ns = "media";
   configMarkerFile = "/var/lib/jellyfin-config-setup-done";
   jellyfinHostname = k8s.hostname "jellyfin";
-  values = pkgs.writeText "jellyfin-values.yaml" (
-    builtins.replaceStrings [ "__JELLYFIN_URL__" ] [ jellyfinHostname ] (
-      builtins.readFile ./values.yaml
-    )
-  );
 
   release = k8s.createHelmRelease {
     name = "jellyfin";
@@ -29,7 +24,10 @@ let
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
-    valuesFile = values;
+    valuesFile = ./values.yaml;
+    substitutions = {
+      JELLYFIN_URL = jellyfinHostname;
+    };
     waitFor = "jellyfin";
     pssLevel = "privileged";
     ingress = {

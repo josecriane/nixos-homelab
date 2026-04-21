@@ -13,13 +13,7 @@
 let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
-  puid = toString (serverConfig.puid or 1000);
-  pgid = toString (serverConfig.pgid or 1000);
   configMarkerFile = "/var/lib/kavita-config-setup-done";
-  values = pkgs.writeText "kavita-values.yaml" (
-    builtins.replaceStrings [ "__TIMEZONE__" "__PUID__" "__PGID__" ] [ serverConfig.timezone puid pgid ]
-      (builtins.readFile ./values.yaml)
-  );
 
   release = k8s.createHelmRelease {
     name = "kavita";
@@ -27,7 +21,7 @@ let
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
-    valuesFile = values;
+    valuesFile = ./values.yaml;
     waitFor = "kavita";
     ingress = {
       host = "kavita";

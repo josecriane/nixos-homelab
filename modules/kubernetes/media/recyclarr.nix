@@ -207,149 +207,102 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "recyclarr-setup" ''
-                ${k8s.libShSource}
-                setup_preamble "${markerFile}" "Recyclarr"
+        ${k8s.libShSource}
+        setup_preamble "${markerFile}" "Recyclarr"
 
-                wait_for_k3s
+        wait_for_k3s
 
-                # Read API keys from K8s Secrets and substitute into config template
-                get_secret() {
-                  $KUBECTL get secret "$1" -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d
-                }
+        # Read API keys from K8s Secrets and substitute into config template
+        get_secret() {
+          $KUBECTL get secret "$1" -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d
+        }
 
-                SONARR_KEY=$(get_secret sonarr-api-key)
-                SONARR_ES_KEY=$(get_secret sonarr-es-api-key)
-                RADARR_KEY=$(get_secret radarr-api-key)
-                RADARR_ES_KEY=$(get_secret radarr-es-api-key)
+        SONARR_KEY=$(get_secret sonarr-api-key)
+        SONARR_ES_KEY=$(get_secret sonarr-es-api-key)
+        RADARR_KEY=$(get_secret radarr-api-key)
+        RADARR_ES_KEY=$(get_secret radarr-es-api-key)
 
-                TMPDIR=$(mktemp -d)
-                trap "rm -rf $TMPDIR" EXIT
+        TMPDIR=$(mktemp -d)
+        trap "rm -rf $TMPDIR" EXIT
 
-                ${sed} \
-                  -e "s/__SONARR_API_KEY__/$SONARR_KEY/" \
-                  -e "s/__SONARR_ES_API_KEY__/$SONARR_ES_KEY/" \
-                  -e "s/__RADARR_API_KEY__/$RADARR_KEY/" \
-                  -e "s/__RADARR_ES_API_KEY__/$RADARR_ES_KEY/" \
-                  ${recyclarrConfigTemplate} > "$TMPDIR/recyclarr.yml"
+        ${sed} \
+          -e "s/__SONARR_API_KEY__/$SONARR_KEY/" \
+          -e "s/__SONARR_ES_API_KEY__/$SONARR_ES_KEY/" \
+          -e "s/__RADARR_API_KEY__/$RADARR_KEY/" \
+          -e "s/__RADARR_ES_API_KEY__/$RADARR_ES_KEY/" \
+          ${recyclarrConfigTemplate} > "$TMPDIR/recyclarr.yml"
 
-                # Create ConfigMaps from files (avoids kubectl YAML round-trip escaping)
-                $KUBECTL delete configmap recyclarr-config -n ${ns} 2>/dev/null || true
-                $KUBECTL create configmap recyclarr-config -n ${ns} \
-                  --from-file=recyclarr.yml="$TMPDIR/recyclarr.yml"
+        # Create ConfigMaps from files (avoids kubectl YAML round-trip escaping)
+        $KUBECTL delete configmap recyclarr-config -n ${ns} 2>/dev/null || true
+        $KUBECTL create configmap recyclarr-config -n ${ns} \
+          --from-file=recyclarr.yml="$TMPDIR/recyclarr.yml"
 
-                $KUBECTL delete configmap recyclarr-settings -n ${ns} 2>/dev/null || true
-                $KUBECTL create configmap recyclarr-settings -n ${ns} \
-                  --from-file=settings.yml=${recyclarrSettings}
+        $KUBECTL delete configmap recyclarr-settings -n ${ns} 2>/dev/null || true
+        $KUBECTL create configmap recyclarr-settings -n ${ns} \
+          --from-file=settings.yml=${recyclarrSettings}
 
-                $KUBECTL delete configmap recyclarr-custom-formats -n ${ns} 2>/dev/null || true
-                $KUBECTL create configmap recyclarr-custom-formats -n ${ns} \
-                  --from-file=language-not-spanish.json=${customFormatNotSpanish}
+        $KUBECTL delete configmap recyclarr-custom-formats -n ${ns} 2>/dev/null || true
+        $KUBECTL create configmap recyclarr-custom-formats -n ${ns} \
+          --from-file=language-not-spanish.json=${customFormatNotSpanish}
 
-                # Create CronJob that runs recyclarr sync every 12 hours
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: batch/v1
-        kind: CronJob
-        metadata:
-          name: recyclarr
-          namespace: ${ns}
-        spec:
-          schedule: "0 */12 * * *"
-          successfulJobsHistoryLimit: 3
-          failedJobsHistoryLimit: 3
-          concurrencyPolicy: Forbid
-          jobTemplate:
-            spec:
-              backoffLimit: 1
-              template:
-                spec:
-                  restartPolicy: Never
-                  containers:
-                  - name: recyclarr
-                    image: ghcr.io/recyclarr/recyclarr:8
-                    command: ["recyclarr", "sync"]
-                    resources:
-                      requests:
-                        cpu: 50m
-                        memory: 64Mi
-                      limits:
-                        memory: 256Mi
-                    volumeMounts:
-                    - name: config
-                      mountPath: /config/recyclarr.yml
-                      subPath: recyclarr.yml
-                    - name: settings
-                      mountPath: /config/settings.yml
-                      subPath: settings.yml
-                    - name: cf-radarr
-                      mountPath: /config/custom-formats/radarr/language-not-spanish.json
-                      subPath: language-not-spanish.json
-                    - name: cf-sonarr
-                      mountPath: /config/custom-formats/sonarr/language-not-spanish.json
-                      subPath: language-not-spanish.json
-                  volumes:
-                  - name: config
-                    configMap:
-                      name: recyclarr-config
-                  - name: settings
-                    configMap:
-                      name: recyclarr-settings
-                  - name: cf-radarr
-                    configMap:
-                      name: recyclarr-custom-formats
-                  - name: cf-sonarr
-                    configMap:
-                      name: recyclarr-custom-formats
-        EOF
+        # Create CronJob that runs recyclarr sync every 12 hours
+        ${k8s.applyManifestsScript {
+          name = "recyclarr-cronjob";
+          manifests = [ ./recyclarr-cronjob.yaml ];
+          substitutions = {
+            NAMESPACE = ns;
+          };
+        }}
 
-                # Run initial sync immediately
-                echo "Running initial Recyclarr sync..."
-                $KUBECTL create job recyclarr-init --from=cronjob/recyclarr -n ${ns} 2>/dev/null || true
+        # Run initial sync immediately
+        echo "Running initial Recyclarr sync..."
+        $KUBECTL create job recyclarr-init --from=cronjob/recyclarr -n ${ns} 2>/dev/null || true
 
-                # Wait for the initial job to complete (max 5 min)
-                for i in $(seq 1 30); do
-                  STATUS=$($KUBECTL get job recyclarr-init -n ${ns} -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "")
-                  if [ "$STATUS" = "Complete" ] || [ "$STATUS" = "SuccessCriteriaMet" ]; then
-                    echo "Initial sync completed"
-                    break
-                  elif [ "$STATUS" = "Failed" ]; then
-                    echo "WARN: Initial sync failed, will retry on next schedule"
-                    $KUBECTL logs job/recyclarr-init -n ${ns} 2>/dev/null | tail -20
-                    break
-                  fi
-                  echo "Waiting for initial sync... ($i/30)"
-                  sleep 10
-                done
+        # Wait for the initial job to complete (max 5 min)
+        for i in $(seq 1 30); do
+          STATUS=$($KUBECTL get job recyclarr-init -n ${ns} -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "")
+          if [ "$STATUS" = "Complete" ] || [ "$STATUS" = "SuccessCriteriaMet" ]; then
+            echo "Initial sync completed"
+            break
+          elif [ "$STATUS" = "Failed" ]; then
+            echo "WARN: Initial sync failed, will retry on next schedule"
+            $KUBECTL logs job/recyclarr-init -n ${ns} 2>/dev/null | tail -20
+            break
+          fi
+          echo "Waiting for initial sync... ($i/30)"
+          sleep 10
+        done
 
-                # Set language to "Spanish" on ES quality profiles so they accept
-                # Spanish releases (profile-level "Original" language would reject them)
-                echo "Setting language to 'Spanish' on ES quality profiles..."
-                for PROFILE_ID in $($KUBECTL exec -n ${ns} deploy/radarr-es -- \
-                    curl -s http://localhost:7878/api/v3/qualityprofile -H "X-Api-Key: $RADARR_ES_KEY" 2>/dev/null | $JQ '.[].id'); do
-                  $KUBECTL exec -n ${ns} deploy/radarr-es -- \
-                    curl -s "http://localhost:7878/api/v3/qualityprofile/$PROFILE_ID" -H "X-Api-Key: $RADARR_ES_KEY" 2>/dev/null | \
-                    $JQ '.language = {"id": 3, "name": "Spanish"}' | \
-                    $KUBECTL exec -i -n ${ns} deploy/radarr-es -- \
-                      curl -s -o /dev/null -X PUT "http://localhost:7878/api/v3/qualityprofile/$PROFILE_ID" \
-                        -H "X-Api-Key: $RADARR_ES_KEY" -H "Content-Type: application/json" -d @- 2>/dev/null
-                done
-                for PROFILE_ID in $($KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-                    curl -s http://localhost:8989/api/v3/qualityprofile -H "X-Api-Key: $SONARR_ES_KEY" 2>/dev/null | $JQ '.[].id'); do
-                  $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-                    curl -s "http://localhost:8989/api/v3/qualityprofile/$PROFILE_ID" -H "X-Api-Key: $SONARR_ES_KEY" 2>/dev/null | \
-                    $JQ '.language = {"id": 3, "name": "Spanish"}' | \
-                    $KUBECTL exec -i -n ${ns} deploy/sonarr-es -- \
-                      curl -s -o /dev/null -X PUT "http://localhost:8989/api/v3/qualityprofile/$PROFILE_ID" \
-                        -H "X-Api-Key: $SONARR_ES_KEY" -H "Content-Type: application/json" -d @- 2>/dev/null
-                done
-                echo "ES language profiles updated"
+        # Set language to "Spanish" on ES quality profiles so they accept
+        # Spanish releases (profile-level "Original" language would reject them)
+        echo "Setting language to 'Spanish' on ES quality profiles..."
+        for PROFILE_ID in $($KUBECTL exec -n ${ns} deploy/radarr-es -- \
+            curl -s http://localhost:7878/api/v3/qualityprofile -H "X-Api-Key: $RADARR_ES_KEY" 2>/dev/null | $JQ '.[].id'); do
+          $KUBECTL exec -n ${ns} deploy/radarr-es -- \
+            curl -s "http://localhost:7878/api/v3/qualityprofile/$PROFILE_ID" -H "X-Api-Key: $RADARR_ES_KEY" 2>/dev/null | \
+            $JQ '.language = {"id": 3, "name": "Spanish"}' | \
+            $KUBECTL exec -i -n ${ns} deploy/radarr-es -- \
+              curl -s -o /dev/null -X PUT "http://localhost:7878/api/v3/qualityprofile/$PROFILE_ID" \
+                -H "X-Api-Key: $RADARR_ES_KEY" -H "Content-Type: application/json" -d @- 2>/dev/null
+        done
+        for PROFILE_ID in $($KUBECTL exec -n ${ns} deploy/sonarr-es -- \
+            curl -s http://localhost:8989/api/v3/qualityprofile -H "X-Api-Key: $SONARR_ES_KEY" 2>/dev/null | $JQ '.[].id'); do
+          $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
+            curl -s "http://localhost:8989/api/v3/qualityprofile/$PROFILE_ID" -H "X-Api-Key: $SONARR_ES_KEY" 2>/dev/null | \
+            $JQ '.language = {"id": 3, "name": "Spanish"}' | \
+            $KUBECTL exec -i -n ${ns} deploy/sonarr-es -- \
+              curl -s -o /dev/null -X PUT "http://localhost:8989/api/v3/qualityprofile/$PROFILE_ID" \
+                -H "X-Api-Key: $SONARR_ES_KEY" -H "Content-Type: application/json" -d @- 2>/dev/null
+        done
+        echo "ES language profiles updated"
 
-                print_success "Recyclarr" \
-                  "CronJob: every 12 hours" \
-                  "Sonarr: WEB-1080p + Remux-1080p Anime quality profiles" \
-                  "Radarr: HD Bluray+WEB + Remux-1080p Anime quality profiles" \
-                  "Manual sync: kubectl create job recyclarr-manual --from=cronjob/recyclarr -n media"
+        print_success "Recyclarr" \
+          "CronJob: every 12 hours" \
+          "Sonarr: WEB-1080p + Remux-1080p Anime quality profiles" \
+          "Radarr: HD Bluray+WEB + Remux-1080p Anime quality profiles" \
+          "Manual sync: kubectl create job recyclarr-manual --from=cronjob/recyclarr -n media"
 
-                create_marker "${markerFile}"
+        create_marker "${markerFile}"
       '';
     };
   };
