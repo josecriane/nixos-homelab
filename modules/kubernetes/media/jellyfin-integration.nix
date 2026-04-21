@@ -13,6 +13,7 @@ let
   markerFile = "/var/lib/jellyfin-integration-setup-done";
   curl = "curl";
   curlBin = "${pkgs.curl}/bin/curl";
+  migratorPodYaml = ./_migrator-pod.yaml;
 in
 {
   systemd.services.jellyfin-integration-setup = {
@@ -131,18 +132,19 @@ in
         echo "=== Configuring Jellyseerr ==="
 
         if wait_for_app_pod "jellyseerr" && [ -n "$JELLYFIN_API" ] && [ -n "$JELLYFIN_SERVER_ID" ]; then
-          JSEERR_SETTINGS=$(find /var/lib/rancher/k3s/storage -name "settings.json" -path "*jellyseerr*" 2>/dev/null | head -1)
+          JSEERR_SETTINGS_CONTENT=$($KUBECTL exec -n ${ns} deploy/jellyseerr -- \
+            cat /app/config/settings.json 2>/dev/null || echo "")
           IS_INITIALIZED="false"
           JS_MEDIA_TYPE="4"
-          if [ -n "$JSEERR_SETTINGS" ] && [ -f "$JSEERR_SETTINGS" ]; then
-            IS_INITIALIZED=$($JQ -r '.public.initialized // false' "$JSEERR_SETTINGS" 2>/dev/null || echo "false")
-            JS_MEDIA_TYPE=$($JQ -r '.main.mediaServerType // 4' "$JSEERR_SETTINGS" 2>/dev/null || echo "4")
+          if [ -n "$JSEERR_SETTINGS_CONTENT" ]; then
+            IS_INITIALIZED=$(echo "$JSEERR_SETTINGS_CONTENT" | $JQ -r '.public.initialized // false' 2>/dev/null || echo "false")
+            JS_MEDIA_TYPE=$(echo "$JSEERR_SETTINGS_CONTENT" | $JQ -r '.main.mediaServerType // 4' 2>/dev/null || echo "4")
           fi
 
           if [ "$IS_INITIALIZED" = "true" ] && [ "$JS_MEDIA_TYPE" = "2" ]; then
             echo "  Jellyseerr: already initialized"
 
-            JELLYSEERR_API_KEY=$($JQ -r '.main.apiKey // empty' "$JSEERR_SETTINGS" 2>/dev/null || echo "")
+            JELLYSEERR_API_KEY=$(echo "$JSEERR_SETTINGS_CONTENT" | $JQ -r '.main.apiKey // empty' 2>/dev/null || echo "")
             if [ -n "$JELLYSEERR_API_KEY" ]; then
               store_credentials "${ns}" "jellyseerr-credentials" \
                 "API_KEY=$JELLYSEERR_API_KEY" "URL=https://$(hostname requests)"
@@ -293,18 +295,30 @@ in
                   sleep 2
                 done
 
-                JSEERR_SETTINGS=$(find /var/lib/rancher/k3s/storage -name "settings.json" -path "*jellyseerr*" 2>/dev/null | head -1)
+                # Mount jellyseerr-config PVC in migrator pod (no hostPath dependency)
+                MIGRATOR_POD="jellyseerr-migrator-$$"
+                ${pkgs.gnused}/bin/sed \
+                  -e "s|__POD_NAME__|$MIGRATOR_POD|g" \
+                  -e "s|__NAMESPACE__|${ns}|g" \
+                  -e "s|__PVC_NAME__|jellyseerr-config|g" \
+                  ${migratorPodYaml} | $KUBECTL apply -f - >/dev/null
+
+                $KUBECTL wait --for=condition=ready "pod/$MIGRATOR_POD" -n ${ns} --timeout=120s
                 JELLYSEERR_API_KEY=""
-                if [ -n "$JSEERR_SETTINGS" ] && [ -f "$JSEERR_SETTINGS" ]; then
-                  JELLYSEERR_API_KEY=$($JQ -r '.main.apiKey // empty' "$JSEERR_SETTINGS" 2>/dev/null || echo "")
+                TMP_SETTINGS=$(mktemp)
+                if $KUBECTL cp "${ns}/$MIGRATOR_POD:/config/settings.json" "$TMP_SETTINGS" 2>/dev/null && [ -s "$TMP_SETTINGS" ]; then
+                  JELLYSEERR_API_KEY=$($JQ -r '.main.apiKey // empty' "$TMP_SETTINGS" 2>/dev/null || echo "")
 
                   if [ -n "$JELLYFIN_LIBRARIES" ] && [ "$JELLYFIN_LIBRARIES" != "[]" ]; then
                     $JQ --argjson libs "$JELLYFIN_LIBRARIES" \
                       '.jellyfin.libraries = ($libs | map(select(.name != "Music")))' \
-                      "$JSEERR_SETTINGS" > "''${JSEERR_SETTINGS}.tmp" && mv "''${JSEERR_SETTINGS}.tmp" "$JSEERR_SETTINGS"
+                      "$TMP_SETTINGS" > "''${TMP_SETTINGS}.tmp" && mv "''${TMP_SETTINGS}.tmp" "$TMP_SETTINGS"
+                    $KUBECTL cp "$TMP_SETTINGS" "${ns}/$MIGRATOR_POD:/config/settings.json"
                     echo "    Jellyfin libraries configured"
                   fi
                 fi
+                rm -f "$TMP_SETTINGS"
+                $KUBECTL delete "pod/$MIGRATOR_POD" -n ${ns} --wait --timeout=60s >/dev/null 2>&1 || true
 
                 $KUBECTL scale deploy -n ${ns} jellyseerr --replicas=1 2>/dev/null
                 $KUBECTL rollout status deployment/jellyseerr -n ${ns} --timeout=120s 2>/dev/null || true

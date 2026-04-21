@@ -171,7 +171,7 @@ in
                   $KUBECTL rollout restart deployment/kube-prometheus-stack-grafana -n ${ns}
                 fi
 
-                # Only wait for pod if deployment has replicas > 0 (may be scaled down by service-manager).
+                # Only wait for pod if deployment has replicas > 0 (may be scaled down by switchboard).
                 REPLICAS=$($KUBECTL get deployment kube-prometheus-stack-grafana -n ${ns} -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)
                 if [ "''${REPLICAS:-0}" -gt 0 ]; then
                   wait_for_pod "${ns}" "app.kubernetes.io/name=grafana" 180

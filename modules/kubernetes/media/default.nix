@@ -17,6 +17,7 @@ in
 {
   imports =
     lib.optionals mediaOn [
+      ./media-config-pvcs.nix
       ./arr-stack
       ./arr-secrets.nix
       ./arr-credentials.nix

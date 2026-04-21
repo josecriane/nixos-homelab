@@ -12,6 +12,7 @@ let
   ns = "media";
   markerFile = "/var/lib/arr-prowlarr-sync-setup-done";
   curl = "curl";
+  migratorPodYaml = ./_migrator-pod.yaml;
 in
 {
   systemd.services.arr-prowlarr-sync-setup = {
@@ -470,7 +471,7 @@ in
             fi
           fi
 
-          NEEDS_RESTART=false
+          PENDING_SQL=$(mktemp)
 
           # Indexers that need FlareSolverr (Cloudflare-protected sites)
           FLARESOLVERR_INDEXERS="1337x eztv"
@@ -517,27 +518,53 @@ in
               if echo "$RESULT" | $JQ -e '.id' >/dev/null 2>&1; then
                 echo "  $indexer_name: configured"
               else
-                # Fallback: insert via SQLite (API rejects indexers it can't reach during test)
-                echo "  $indexer_name: API failed, trying SQLite..."
-                PROWLARR_DB=$(ls -d /var/lib/rancher/k3s/storage/pvc-*_media_prowlarr-config/prowlarr.db 2>/dev/null | head -1)
-                if [ -n "$PROWLARR_DB" ]; then
-                  TAGS_SQL=$(echo "$TAGS" | tr -d ' ')
-                  ${pkgs.sqlite}/bin/sqlite3 "$PROWLARR_DB" \
-                    "INSERT INTO Indexers (Name, Implementation, Settings, ConfigContract, Enable, Priority, Added, Redirect, AppProfileId, Tags, DownloadClientId) SELECT '$indexer_name','Cardigann','{\"definitionFile\":\"$indexer_file\"}','CardigannSettings',1,25,datetime('now'),0,1,'$TAGS_SQL',0 WHERE NOT EXISTS (SELECT 1 FROM Indexers WHERE Name='$indexer_name');" \
-                    2>/dev/null && echo "  $indexer_name: configured via SQLite" || echo "  $indexer_name: SQLite also failed"
-                  NEEDS_RESTART=true
-                else
-                  echo "  $indexer_name: Skipped (DB not found)"
-                fi
+                # Fallback: queue SQL insert (API rejects indexers it can't reach during test)
+                echo "  $indexer_name: API failed, queuing SQL insert..."
+                TAGS_SQL=$(echo "$TAGS" | tr -d ' ')
+                echo "INSERT INTO Indexers (Name, Implementation, Settings, ConfigContract, Enable, Priority, Added, Redirect, AppProfileId, Tags, DownloadClientId) SELECT '$indexer_name','Cardigann','{\"definitionFile\":\"$indexer_file\"}','CardigannSettings',1,25,datetime('now'),0,1,'$TAGS_SQL',0 WHERE NOT EXISTS (SELECT 1 FROM Indexers WHERE Name='$indexer_name');" >> "$PENDING_SQL"
               fi
             fi
           done
-          # Restart Prowlarr if indexers were added via SQLite
-          if [ "$NEEDS_RESTART" = "true" ]; then
-            echo "  Restarting Prowlarr to pick up SQLite-inserted indexers..."
-            $KUBECTL rollout restart -n ${ns} deploy/prowlarr 2>/dev/null
+
+          # Apply queued SQL fallbacks via migrator pod (no hostPath dependency)
+          if [ -s "$PENDING_SQL" ]; then
+            echo "  Applying $(wc -l < "$PENDING_SQL") SQL fallback(s) to prowlarr.db..."
+            $KUBECTL scale deploy -n ${ns} prowlarr --replicas=0 2>/dev/null
+            for i in $(seq 1 30); do
+              REMAINING=$($KUBECTL get pods -n ${ns} -l app=prowlarr --no-headers 2>/dev/null | wc -l)
+              [ "$REMAINING" -eq 0 ] && break
+              sleep 2
+            done
+            sleep 2
+
+            MIGRATOR_POD="prowlarr-migrator-$$"
+            ${pkgs.gnused}/bin/sed \
+              -e "s|__POD_NAME__|$MIGRATOR_POD|g" \
+              -e "s|__NAMESPACE__|${ns}|g" \
+              -e "s|__PVC_NAME__|prowlarr-config|g" \
+              ${migratorPodYaml} | $KUBECTL apply -f - >/dev/null
+
+            $KUBECTL wait --for=condition=ready "pod/$MIGRATOR_POD" -n ${ns} --timeout=120s
+
+            PROWLARR_DB_PATH=$($KUBECTL exec -n ${ns} "$MIGRATOR_POD" -- find /config -name "prowlarr.db" 2>/dev/null | head -1)
+            if [ -n "$PROWLARR_DB_PATH" ]; then
+              TMP_DB=$(mktemp)
+              $KUBECTL cp "${ns}/$MIGRATOR_POD:$PROWLARR_DB_PATH" "$TMP_DB"
+              ${pkgs.sqlite}/bin/sqlite3 "$TMP_DB" < "$PENDING_SQL" 2>/dev/null \
+                && echo "  SQL fallbacks applied" \
+                || echo "  SQL fallbacks failed"
+              $KUBECTL cp "$TMP_DB" "${ns}/$MIGRATOR_POD:$PROWLARR_DB_PATH"
+              rm -f "$TMP_DB"
+            else
+              echo "  prowlarr.db not found in PVC"
+            fi
+
+            $KUBECTL delete "pod/$MIGRATOR_POD" -n ${ns} --wait --timeout=60s >/dev/null 2>&1 || true
+
+            $KUBECTL scale deploy -n ${ns} prowlarr --replicas=1 2>/dev/null
             $KUBECTL rollout status -n ${ns} deploy/prowlarr --timeout=120s 2>/dev/null
           fi
+          rm -f "$PENDING_SQL"
 
           echo "  Indexers will sync automatically to Sonarr/Radarr/Lidarr"
         fi

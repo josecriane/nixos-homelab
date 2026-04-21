@@ -18,8 +18,8 @@ let
   enabled = name: svc.${name} or false;
   h = k8s.hostname;
 
-  serviceManagerUrl = "https://${h "services"}";
-  pingUrl = ns: name: "${serviceManagerUrl}/api/ping/${ns}/${name}";
+  switchboardUrl = "https://${h "services"}";
+  pingUrl = ns: name: "${switchboardUrl}/api/ping/${ns}/${name}";
 
   mkItem =
     {
@@ -212,6 +212,9 @@ let
     ]
   );
 
+  longhornCfg = serverConfig.storage.longhorn or { };
+  longhornEnabled = (longhornCfg.enable or false) && ((longhornCfg.ingress or null) != null);
+
   infraGroup = mkGroup "Infrastructure" "fas fa-server" (
     [
       (mkItem {
@@ -232,6 +235,12 @@ let
       icon = "fas fa-power-off";
       subtitle = "Start/Stop Services";
       url = "https://${h "services"}";
+    })
+    ++ lib.optional longhornEnabled (mkItem {
+      name = "Longhorn";
+      icon = "fas fa-hdd";
+      subtitle = "Distributed Storage";
+      url = "https://${h longhornCfg.ingress.host}";
     })
     ++ [
       (mkItem {

@@ -557,6 +557,7 @@ in
 
                 # Infrastructure dashboards
                 create_forward_auth_app "Traefik" "traefik" "https://$(hostname traefik)"
+                create_forward_auth_app "Longhorn" "longhorn" "https://$(hostname longhorn)"
 
                 # ============================================
                 # SAVE CREDENTIALS

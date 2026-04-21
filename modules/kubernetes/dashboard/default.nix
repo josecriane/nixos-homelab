@@ -12,14 +12,14 @@ let
 in
 {
   # homer: bootstrap-only, gated by `services.dashboard`.
-  # service-manager.nix is homelab glue that sets `k8s.apps.serviceManager`
-  # (option defined by the upstream service-manager module). It must only
+  # switchboard.nix is homelab glue that sets `k8s.apps.switchboard`
+  # (option defined by the upstream switchboard module). It must only
   # load when the upstream module is also active.
   imports =
     lib.optionals (isBootstrap && (enabled "dashboard")) [
       ./homer
     ]
-    ++ lib.optionals (enabled "service-manager") [
-      ./service-manager.nix
+    ++ lib.optionals (enabled "switchboard") [
+      ./switchboard.nix
     ];
 }

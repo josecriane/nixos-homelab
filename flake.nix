@@ -17,6 +17,10 @@
       inputs.disko.follows = "disko";
       inputs.agenix.follows = "agenix";
     };
+    switchboard = {
+      url = "github:josecriane/switchboard";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -24,6 +28,7 @@
       self,
       nixpkgs,
       nixos-k8s,
+      switchboard,
       ...
     }:
     let
@@ -59,7 +64,7 @@
           clusterConfig = withHomelabDefaults clusterConfig;
           inherit hostsPath secretsPath;
           extraSpecialArgs = {
-            inherit nixos-k8s;
+            inherit nixos-k8s switchboard;
             nixos-homelab = self;
           }
           // extraSpecialArgs;

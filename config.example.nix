@@ -42,7 +42,7 @@
     openstreetmap = false;
     # Upstream toggles (from nixos-k8s): browser-based K8s workload control
     # panel and the Traefik dashboard IngressRoute.
-    service-manager = false;
+    switchboard = false;
     traefikDashboard = false;
   };
 
@@ -104,6 +104,12 @@
   };
   storage = {
     useNFS = false;
+    # Longhorn distributed block storage (optional)
+    # longhorn = {
+    #   enable = true;
+    #   replicaCount = 2;
+    #   defaultStorageClass = false;
+    # };
   };
   certificates = {
     restoreFromBackup = false;

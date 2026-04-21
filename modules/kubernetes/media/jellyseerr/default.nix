@@ -126,9 +126,10 @@ lib.recursiveUpdate release {
         $KUBECTL rollout status deployment/jellyseerr -n ${ns} --timeout=120s 2>/dev/null || true
 
         JELLYSEERR_API_KEY=""
-        JSEERR_SETTINGS=$(find /var/lib/rancher/k3s/storage -name "settings.json" -path "*jellyseerr*" 2>/dev/null | head -1)
-        if [ -n "$JSEERR_SETTINGS" ] && [ -f "$JSEERR_SETTINGS" ]; then
-          JELLYSEERR_API_KEY=$($JQ -r '.main.apiKey // empty' "$JSEERR_SETTINGS" 2>/dev/null)
+        JSEERR_SETTINGS_CONTENT=$($KUBECTL exec -n ${ns} deploy/jellyseerr -- \
+          cat /app/config/settings.json 2>/dev/null || echo "")
+        if [ -n "$JSEERR_SETTINGS_CONTENT" ]; then
+          JELLYSEERR_API_KEY=$(echo "$JSEERR_SETTINGS_CONTENT" | $JQ -r '.main.apiKey // empty' 2>/dev/null)
         fi
 
         store_credentials "${ns}" "jellyseerr-credentials" \

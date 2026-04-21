@@ -133,7 +133,28 @@
         "agenix": "agenix",
         "disko": "disko",
         "nixos-k8s": "nixos-k8s",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "switchboard": "switchboard"
+      }
+    },
+    "switchboard": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1776805572,
+        "narHash": "sha256-vbmhBJX7yoO1QfqhM8VodjWXhVk/XLXJLKqta7cltYk=",
+        "owner": "josecriane",
+        "repo": "switchboard",
+        "rev": "50a16cc5e02705a10499a17eaaa665dbdb5758b2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "josecriane",
+        "repo": "switchboard",
+        "type": "github"
       }
     },
     "systems": {

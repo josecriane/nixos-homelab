@@ -14,6 +14,7 @@ let
   markerFile = "/var/lib/bazarr-config-setup-done";
   curl = "curl";
   opensubtitlesUsername = serverConfig.opensubtitles.username or "";
+  migratorPodYaml = ./_migrator-pod.yaml;
 in
 {
   age.secrets.opensubtitles-password = lib.mkIf (opensubtitlesUsername != "") {
@@ -215,29 +216,53 @@ in
                     done
                     sleep 2
 
-                    BAZARR_DB=$(find /var/lib/rancher/k3s/storage -name "bazarr.db" -path "*bazarr*" 2>/dev/null | head -1)
-                    if [ -n "$BAZARR_DB" ] && [ -f "$BAZARR_DB" ]; then
+                    # Mount bazarr-config PVC in an ephemeral pod so we can read/write
+                    # bazarr.db and config.yaml without depending on host PVC path
+                    # (required for Longhorn, which uses iSCSI block devices).
+                    MIGRATOR_POD="bazarr-migrator-$$"
+                    ${pkgs.gnused}/bin/sed \
+                      -e "s|__POD_NAME__|$MIGRATOR_POD|g" \
+                      -e "s|__NAMESPACE__|${ns}|g" \
+                      -e "s|__PVC_NAME__|bazarr-config|g" \
+                      ${migratorPodYaml} | $KUBECTL apply -f - >/dev/null
+
+                    $KUBECTL wait --for=condition=ready "pod/$MIGRATOR_POD" -n ${ns} --timeout=120s
+
+                    BAZARR_DB_PATH=$($KUBECTL exec -n ${ns} "$MIGRATOR_POD" -- find /config -name "bazarr.db" 2>/dev/null | head -1)
+                    if [ -n "$BAZARR_DB_PATH" ]; then
+                      TMP_DB=$(mktemp)
+                      $KUBECTL cp "${ns}/$MIGRATOR_POD:$BAZARR_DB_PATH" "$TMP_DB"
+
                       # Enable Spanish and English languages
-                      ${pkgs.sqlite}/bin/sqlite3 "$BAZARR_DB" "UPDATE table_settings_languages SET enabled=1 WHERE code3 IN ('eng','spa');"
+                      ${pkgs.sqlite}/bin/sqlite3 "$TMP_DB" "UPDATE table_settings_languages SET enabled=1 WHERE code3 IN ('eng','spa');"
 
                       # Create language profile if it doesn't exist
-                      PROFILE_COUNT=$(${pkgs.sqlite}/bin/sqlite3 "$BAZARR_DB" "SELECT COUNT(*) FROM table_languages_profiles WHERE name='Spanish + English';")
+                      PROFILE_COUNT=$(${pkgs.sqlite}/bin/sqlite3 "$TMP_DB" "SELECT COUNT(*) FROM table_languages_profiles WHERE name='Spanish + English';")
                       if [ "$PROFILE_COUNT" -eq 0 ]; then
-                        ${pkgs.sqlite}/bin/sqlite3 "$BAZARR_DB" "INSERT INTO table_languages_profiles (profileId, cutoff, originalFormat, items, name) VALUES (1, NULL, NULL, '[{\"id\": 1, \"language\": \"es\", \"hi\": \"False\", \"forced\": \"False\", \"audio_exclude\": \"False\"}, {\"id\": 2, \"language\": \"en\", \"hi\": \"False\", \"forced\": \"False\", \"audio_exclude\": \"False\"}]', 'Spanish + English');"
+                        ${pkgs.sqlite}/bin/sqlite3 "$TMP_DB" "INSERT INTO table_languages_profiles (profileId, cutoff, originalFormat, items, name) VALUES (1, NULL, NULL, '[{\"id\": 1, \"language\": \"es\", \"hi\": \"False\", \"forced\": \"False\", \"audio_exclude\": \"False\"}, {\"id\": 2, \"language\": \"en\", \"hi\": \"False\", \"forced\": \"False\", \"audio_exclude\": \"False\"}]', 'Spanish + English');"
                         echo "    Language profile created: Spanish + English"
                       fi
 
+                      $KUBECTL cp "$TMP_DB" "${ns}/$MIGRATOR_POD:$BAZARR_DB_PATH"
+                      rm -f "$TMP_DB"
+
                       # Set as default profile for series and movies in config.yaml
-                      BAZARR_CFG=$(find /var/lib/rancher/k3s/storage -name "config.yaml" -path "*bazarr*" 2>/dev/null | head -1)
-                      if [ -n "$BAZARR_CFG" ]; then
-                        ${pkgs.gnused}/bin/sed -i 's/serie_default_enabled: false/serie_default_enabled: true/; s/serie_default_profile: .*/serie_default_profile: "1"/; s/movie_default_enabled: false/movie_default_enabled: true/; s/movie_default_profile: .*/movie_default_profile: "1"/' "$BAZARR_CFG"
+                      BAZARR_CFG_PATH=$($KUBECTL exec -n ${ns} "$MIGRATOR_POD" -- find /config -name "config.yaml" 2>/dev/null | head -1)
+                      if [ -n "$BAZARR_CFG_PATH" ]; then
+                        TMP_CFG=$(mktemp)
+                        $KUBECTL cp "${ns}/$MIGRATOR_POD:$BAZARR_CFG_PATH" "$TMP_CFG"
+                        ${pkgs.gnused}/bin/sed -i 's/serie_default_enabled: false/serie_default_enabled: true/; s/serie_default_profile: .*/serie_default_profile: "1"/; s/movie_default_enabled: false/movie_default_enabled: true/; s/movie_default_profile: .*/movie_default_profile: "1"/' "$TMP_CFG"
                         # TRaSH Guides subtitle scoring thresholds
-                        ${pkgs.gnused}/bin/sed -i 's/minimum_score_movie: .*/minimum_score_movie: 80/; s/minimum_score: .*/minimum_score: 90/; s/use_hash: .*/use_hash: true/' "$BAZARR_CFG"
+                        ${pkgs.gnused}/bin/sed -i 's/minimum_score_movie: .*/minimum_score_movie: 80/; s/minimum_score: .*/minimum_score: 90/; s/use_hash: .*/use_hash: true/' "$TMP_CFG"
+                        $KUBECTL cp "$TMP_CFG" "${ns}/$MIGRATOR_POD:$BAZARR_CFG_PATH"
+                        rm -f "$TMP_CFG"
                         echo "    Default profile and TRaSH scoring configured"
                       fi
                     else
                       echo "    WARN: bazarr.db not found"
                     fi
+
+                    $KUBECTL delete "pod/$MIGRATOR_POD" -n ${ns} --wait --timeout=60s >/dev/null 2>&1 || true
 
                     # Scale back up
                     $KUBECTL scale deploy -n ${ns} bazarr --replicas=1 2>/dev/null
