@@ -12,7 +12,6 @@ let
 in
 {
   imports = lib.optionals (isBootstrap && (enabled "monitoring")) [
-    ./grafana-prometheus.nix
-    ./loki.nix
+    ./grafana-oidc.nix
   ];
 }

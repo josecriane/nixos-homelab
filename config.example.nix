@@ -115,6 +115,24 @@
     restoreFromBackup = false;
   };
 
+  # Monitoring ingress auth. Prometheus/Alertmanager have no built-in auth,
+  # so their ingresses are only created when middlewares are set.
+  # Grafana self-auths (OIDC via Authentik), so its middlewares default to [].
+  monitoring = {
+    prometheus.middlewares = [
+      {
+        name = "forward-auth";
+        namespace = "traefik-system";
+      }
+    ];
+    alertmanager.middlewares = [
+      {
+        name = "forward-auth";
+        namespace = "traefik-system";
+      }
+    ];
+  };
+
   # OpenSubtitles.com (for Bazarr subtitle downloads)
   # Password is stored encrypted via agenix (secrets/opensubtitles-password.age)
   opensubtitles = {

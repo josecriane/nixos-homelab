@@ -30,7 +30,7 @@
       nixos-k8s,
       switchboard,
       ...
-    }:
+    }@inputs:
     let
       # Homelab defaults layered onto raw clusterConfig. Upstream modules
       # are inconsistent about default cert provider (tls-secret.nix defaults
@@ -113,7 +113,9 @@
           { };
     in
     {
-      lib.mkHomelab = mkHomelab;
+      lib = {
+        inherit mkHomelab;
+      };
 
       nixosConfigurations = standaloneConfigs;
 
