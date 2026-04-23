@@ -30,6 +30,7 @@ in
       ./jellyfin
       ./jellyfin-integration.nix
       ./jellyseerr
+      ./jellyseerr-arr-sync.nix
       ./bazarr
       ./lidarr
       ./bookshelf

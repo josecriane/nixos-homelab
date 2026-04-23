@@ -26,5 +26,6 @@ in
     ]
     ++ lib.optionals (onBootstrap "syncthing") [
       ./syncthing.nix
+      ./syncthing-folders.nix
     ];
 }
