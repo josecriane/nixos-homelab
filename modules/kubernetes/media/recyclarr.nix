@@ -39,17 +39,17 @@ let
         - trash_ids:
             - 026d5aadd1a6b4e550b134cb6c72b3ca # Uncensored
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
         - trash_ids:
             - b2550eb333d27b75833e25b8c2557b38 # 10bit
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 10
         - trash_ids:
             - 418f50b10f1907201b6cfdf881f467b7 # Anime Dual Audio
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
   '';
 
@@ -72,22 +72,22 @@ let
           assign_scores_to:
             - name: WEB-1080p
               score: -10000
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: -10000
         - trash_ids:
             - 026d5aadd1a6b4e550b134cb6c72b3ca # Uncensored
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
         - trash_ids:
             - b2550eb333d27b75833e25b8c2557b38 # 10bit
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 10
         - trash_ids:
             - 418f50b10f1907201b6cfdf881f467b7 # Anime Dual Audio
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
   '';
 
@@ -108,17 +108,17 @@ let
         - trash_ids:
             - 064af5f084a0a24458cc8ecd3220f93f # Uncensored
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
         - trash_ids:
             - a5d148168c4506b55cf53984107c396e # 10bit
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 10
         - trash_ids:
             - 4a3b087eea2ce012fcc1ce319259a3be # Anime Dual Audio
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
   '';
 
@@ -141,22 +141,22 @@ let
           assign_scores_to:
             - name: HD Bluray + WEB
               score: -10000
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: -10000
         - trash_ids:
             - 064af5f084a0a24458cc8ecd3220f93f # Uncensored
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
         - trash_ids:
             - a5d148168c4506b55cf53984107c396e # 10bit
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 10
         - trash_ids:
             - 4a3b087eea2ce012fcc1ce319259a3be # Anime Dual Audio
           assign_scores_to:
-            - name: Remux-1080p - Anime
+            - name: "[Anime] Remux-1080p"
               score: 0
   '';
 
