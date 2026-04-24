@@ -49,6 +49,9 @@ in
 
         wait_for_app_pod() {
           local app=$1
+          if [ "$($KUBECTL get deploy -n ${ns} "$app" -o jsonpath='{.spec.replicas}' 2>/dev/null)" = "0" ]; then
+            return 1
+          fi
           for i in $(seq 1 30); do
             if $KUBECTL get pods -n ${ns} -l app=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
               return 0

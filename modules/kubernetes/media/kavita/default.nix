@@ -63,6 +63,15 @@ lib.recursiveUpdate release {
         setup_preamble "${configMarkerFile}" "Kavita config"
 
         wait_for_k3s
+
+        # Skip config if kavita is paused (replicas=0): would spin waiting
+        # for a pod that will never come up.
+        if [ "$($KUBECTL get deploy -n ${ns} kavita -o jsonpath='{.spec.replicas}' 2>/dev/null)" = "0" ]; then
+          echo "Kavita is paused (replicas=0), skipping config"
+          create_marker "${configMarkerFile}"
+          exit 0
+        fi
+
         wait_for_deployment "${ns}" "kavita" 180
 
         $KUBECTL exec -n ${ns} deploy/kavita -- mkdir -p /data/media/manga /data/media/comics 2>/dev/null || true

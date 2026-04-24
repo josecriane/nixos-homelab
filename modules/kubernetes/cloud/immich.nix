@@ -161,9 +161,36 @@ in
                   echo "Immich upload directories prepared"
                 fi
 
-                # Local PVCs for postgres and ML cache (good I/O needed)
-                create_pvc "immich-postgres" "${ns}" "5Gi"
-                create_pvc "immich-ml-cache" "${ns}" "10Gi"
+                # Local PVCs for postgres and ML cache (good I/O needed).
+                # storageClassName: longhorn is declared explicitly so apply
+                # stays idempotent against pre-existing PVCs (SC is immutable).
+                cat <<EOF | $KUBECTL apply -f -
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: immich-postgres
+          namespace: ${ns}
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: longhorn
+          resources:
+            requests:
+              storage: 5Gi
+        ---
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: immich-ml-cache
+          namespace: ${ns}
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: longhorn
+          resources:
+            requests:
+              storage: 10Gi
+        EOF
 
                 # PostgreSQL with pgvector
                 cat <<EOF | $KUBECTL apply -f -

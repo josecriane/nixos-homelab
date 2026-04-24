@@ -198,7 +198,7 @@ lib.recursiveUpdate release {
           JELLYFIN_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYFIN_CLIENT_SECRET}' | base64 -d)
 
           if [ -n "$JELLYFIN_CLIENT_SECRET" ]; then
-            JELLYFIN_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyfin -o jsonpath='{.items[0].metadata.name}')
+            JELLYFIN_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyfin --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
 
             if [ -n "$JELLYFIN_POD" ]; then
               $KUBECTL exec -n ${ns} $JELLYFIN_POD -- mkdir -p /config/plugins/SSO-Auth

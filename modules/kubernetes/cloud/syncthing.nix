@@ -32,9 +32,36 @@ in
                 wait_for_k3s
                 ensure_namespace "${ns}"
 
-                # PVCs
-                create_pvc "syncthing-config" "${ns}" "1Gi"
-                create_pvc "syncthing-data" "${ns}" "50Gi"
+                # PVCs — storageClassName: longhorn is declared explicitly so
+                # apply stays idempotent against pre-existing PVCs (SC is
+                # immutable after bind).
+                cat <<EOF | $KUBECTL apply -f -
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: syncthing-config
+          namespace: ${ns}
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: longhorn
+          resources:
+            requests:
+              storage: 1Gi
+        ---
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: syncthing-data
+          namespace: ${ns}
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: longhorn
+          resources:
+            requests:
+              storage: 50Gi
+        EOF
 
                 # Deployment (Syncthing uses different paths than LinuxServer)
                 cat <<EOF | $KUBECTL apply -f -
