@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-postgres
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: immich-postgres
+  template:
+    metadata:
+      labels:
+        app: immich-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: tensorchord/pgvecto-rs:pg16-v0.2.1
+        env:
+        - name: POSTGRES_USER
+          value: "immich"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: immich-secrets
+              key: DB_PASSWORD
+        - name: POSTGRES_DB
+          value: "immich"
+        ports:
+        - containerPort: 5432
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: immich-postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-postgres
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: immich-postgres
+  ports:
+  - port: 5432
+    targetPort: 5432

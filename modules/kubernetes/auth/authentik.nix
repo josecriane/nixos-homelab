@@ -53,26 +53,23 @@ in
                 AUTHENTIK_ADMIN_PASSWORD=$(cat ${config.age.secrets.authentik-admin-password.path})
 
                 # Install Authentik
-                $HELM upgrade --install authentik authentik/authentik \
-                  --namespace ${ns} \
-                  --set authentik.secret_key="$AUTHENTIK_SECRET_KEY" \
-                  --set authentik.error_reporting.enabled=false \
-                  --set authentik.postgresql.password="$POSTGRES_PASSWORD" \
-                  --set authentik.bootstrap_password="$AUTHENTIK_ADMIN_PASSWORD" \
-                  --set authentik.bootstrap_token="$BOOTSTRAP_TOKEN" \
-                  --set authentik.bootstrap_email="${serverConfig.authentik.adminEmail}" \
-                  --set postgresql.enabled=true \
-                  --set postgresql.auth.password="$POSTGRES_PASSWORD" \
-                  --set postgresql.primary.persistence.enabled=true \
-                  --set postgresql.primary.persistence.size=2Gi \
-                  --set redis.enabled=true \
-                  --set redis.master.persistence.enabled=true \
-                  --set redis.master.persistence.size=1Gi \
-                  --set server.ingress.enabled=false \
-                  --set server.replicas=1 \
-                  --set worker.replicas=1 \
-                  --wait \
-                  --timeout 10m
+                helm_install "authentik" "authentik/authentik" "${ns}" "10m" \
+                  "authentik.secret_key=$AUTHENTIK_SECRET_KEY" \
+                  "authentik.error_reporting.enabled=false" \
+                  "authentik.postgresql.password=$POSTGRES_PASSWORD" \
+                  "authentik.bootstrap_password=$AUTHENTIK_ADMIN_PASSWORD" \
+                  "authentik.bootstrap_token=$BOOTSTRAP_TOKEN" \
+                  "authentik.bootstrap_email=${serverConfig.authentik.adminEmail}" \
+                  "postgresql.enabled=true" \
+                  "postgresql.auth.password=$POSTGRES_PASSWORD" \
+                  "postgresql.primary.persistence.enabled=true" \
+                  "postgresql.primary.persistence.size=2Gi" \
+                  "redis.enabled=true" \
+                  "redis.master.persistence.enabled=true" \
+                  "redis.master.persistence.size=1Gi" \
+                  "server.ingress.enabled=false" \
+                  "server.replicas=1" \
+                  "worker.replicas=1"
 
                 wait_for_pod "${ns}" "app.kubernetes.io/name=authentik,app.kubernetes.io/component=server" 600
 

@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-server
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: immich-server
+  template:
+    metadata:
+      labels:
+        app: immich-server
+    spec:
+      containers:
+      - name: immich-server
+        image: ghcr.io/immich-app/immich-server:v2.5.6
+        env:
+        - name: DB_HOSTNAME
+          valueFrom:
+            secretKeyRef:
+              name: immich-secrets
+              key: DB_HOSTNAME
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: immich-secrets
+              key: DB_USERNAME
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: immich-secrets
+              key: DB_PASSWORD
+        - name: DB_DATABASE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: immich-secrets
+              key: DB_DATABASE_NAME
+        - name: REDIS_HOSTNAME
+          valueFrom:
+            secretKeyRef:
+              name: immich-secrets
+              key: REDIS_HOSTNAME
+        - name: IMMICH_MACHINE_LEARNING_URL
+          value: "http://immich-ml:3003"
+        - name: TZ
+          value: "__TIMEZONE__"
+        ports:
+        - containerPort: 2283
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 3Gi
+        volumeMounts:
+        - name: library
+          mountPath: /usr/src/app/upload
+      volumes:
+      - name: library
+        persistentVolumeClaim:
+          claimName: immich-library
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-server
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: immich-server
+  ports:
+  - port: 2283
+    targetPort: 2283

@@ -12,6 +12,11 @@ let
   ns = "media";
   markerFile = "/var/lib/arr-download-clients-setup-done";
   curl = "curl";
+
+  qbitCfg = serverConfig.qbittorrent or { };
+  qbitMaxActiveDownloads = toString (qbitCfg.maxActiveDownloads or 5);
+  qbitMaxActiveTorrents = toString (qbitCfg.maxActiveTorrents or 10);
+  qbitMaxActiveUploads = toString (qbitCfg.maxActiveUploads or 3);
 in
 {
   systemd.services.arr-download-clients-setup = {
@@ -129,9 +134,9 @@ in
                 "temp_path": "/data/torrents/incomplete",
                 "temp_path_enabled": true,
                 "auto_tmm_enabled": true,
-                "max_active_downloads": 5,
-                "max_active_torrents": 10,
-                "max_active_uploads": 3,
+                "max_active_downloads": ${qbitMaxActiveDownloads},
+                "max_active_torrents": ${qbitMaxActiveTorrents},
+                "max_active_uploads": ${qbitMaxActiveUploads},
                 "slow_torrent_dl_rate_threshold": 2,
                 "slow_torrent_inactive_timer": 600,
                 "queueing_enabled": true,

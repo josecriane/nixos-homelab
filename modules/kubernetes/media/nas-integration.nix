@@ -40,32 +40,18 @@ let
 
   # Generate Endpoints + Service for a NAS service
   generateNASService = nasName: nasCfg: serviceName: servicePort: ''
-        echo "Creating Endpoints and Service for ${nasName}-${serviceName}..."
-        cat <<EOF | $KUBECTL apply -f -
-    ---
-    apiVersion: v1
-    kind: Endpoints
-    metadata:
-      name: ${nasName}-${serviceName}
-      namespace: ${ns}
-    subsets:
-      - addresses:
-          - ip: ${nasCfg.ip}
-        ports:
-          - port: ${toString servicePort}
-            name: http
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: ${nasName}-${serviceName}
-      namespace: ${ns}
-    spec:
-      ports:
-        - port: ${toString servicePort}
-          targetPort: ${toString servicePort}
-          name: http
-    EOF
+    echo "Creating Endpoints and Service for ${nasName}-${serviceName}..."
+    ${k8s.applyManifestsScript {
+      name = "nas-${nasName}-${serviceName}";
+      manifests = [ ./nas-service.yaml ];
+      substitutions = {
+        NAS_NAME = nasName;
+        SERVICE_NAME = serviceName;
+        NAS_IP = nasCfg.ip;
+        SERVICE_PORT = toString servicePort;
+        NAMESPACE = ns;
+      };
+    }}
   '';
 
   # Generate all resources for a single NAS

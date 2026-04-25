@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncthing
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: syncthing
+  template:
+    metadata:
+      labels:
+        app: syncthing
+    spec:
+      containers:
+      - name: syncthing
+        image: syncthing/syncthing:2.0.14
+        ports:
+        - containerPort: 8384
+          name: web
+        - containerPort: 22000
+          name: sync-tcp
+          protocol: TCP
+        - containerPort: 22000
+          name: sync-udp
+          protocol: UDP
+        - containerPort: 21027
+          name: discovery
+          protocol: UDP
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        env:
+        - name: PUID
+          value: "__PUID__"
+        - name: PGID
+          value: "__PGID__"
+        volumeMounts:
+        - name: config
+          mountPath: /var/syncthing/config
+        - name: data
+          mountPath: /var/syncthing/data
+      volumes:
+      - name: config
+        persistentVolumeClaim:
+          claimName: syncthing-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: syncthing-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: syncthing
+  ports:
+  - name: web
+    port: 8384
+    targetPort: 8384
+  - name: sync-tcp
+    port: 22000
+    targetPort: 22000
+    protocol: TCP
+  - name: sync-udp
+    port: 22000
+    targetPort: 22000
+    protocol: UDP
+  - name: discovery
+    port: 21027
+    targetPort: 21027
+    protocol: UDP

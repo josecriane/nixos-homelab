@@ -564,30 +564,22 @@ in
                 # ============================================
                 AUTHENTIK_URL="https://$(hostname auth)"
 
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: v1
-        kind: Secret
-        metadata:
-          name: authentik-sso-credentials
-          namespace: traefik-system
-        type: Opaque
-        stringData:
-          AUTHENTIK_URL: "$AUTHENTIK_URL"
-          GRAFANA_CLIENT_ID: "grafana"
-          GRAFANA_CLIENT_SECRET: "$GRAFANA_CLIENT_SECRET"
-          NEXTCLOUD_CLIENT_ID: "nextcloud"
-          NEXTCLOUD_CLIENT_SECRET: "$NEXTCLOUD_CLIENT_SECRET"
-          JELLYFIN_CLIENT_ID: "jellyfin"
-          JELLYFIN_CLIENT_SECRET: "$JELLYFIN_CLIENT_SECRET"
-          JELLYSEERR_CLIENT_ID: "jellyseerr"
-          JELLYSEERR_CLIENT_SECRET: "$JELLYSEERR_CLIENT_SECRET"
-          IMMICH_CLIENT_ID: "immich"
-          IMMICH_CLIENT_SECRET: "$IMMICH_CLIENT_SECRET"
-          VAULTWARDEN_CLIENT_ID: "vaultwarden"
-          VAULTWARDEN_CLIENT_SECRET: "$VAULTWARDEN_CLIENT_SECRET"
-          KAVITA_CLIENT_ID: "kavita"
-          KAVITA_CLIENT_SECRET: "$KAVITA_CLIENT_SECRET"
-        EOF
+                store_credentials "traefik-system" "authentik-sso-credentials" \
+                  "AUTHENTIK_URL=$AUTHENTIK_URL" \
+                  "GRAFANA_CLIENT_ID=grafana" \
+                  "GRAFANA_CLIENT_SECRET=$GRAFANA_CLIENT_SECRET" \
+                  "NEXTCLOUD_CLIENT_ID=nextcloud" \
+                  "NEXTCLOUD_CLIENT_SECRET=$NEXTCLOUD_CLIENT_SECRET" \
+                  "JELLYFIN_CLIENT_ID=jellyfin" \
+                  "JELLYFIN_CLIENT_SECRET=$JELLYFIN_CLIENT_SECRET" \
+                  "JELLYSEERR_CLIENT_ID=jellyseerr" \
+                  "JELLYSEERR_CLIENT_SECRET=$JELLYSEERR_CLIENT_SECRET" \
+                  "IMMICH_CLIENT_ID=immich" \
+                  "IMMICH_CLIENT_SECRET=$IMMICH_CLIENT_SECRET" \
+                  "VAULTWARDEN_CLIENT_ID=vaultwarden" \
+                  "VAULTWARDEN_CLIENT_SECRET=$VAULTWARDEN_CLIENT_SECRET" \
+                  "KAVITA_CLIENT_ID=kavita" \
+                  "KAVITA_CLIENT_SECRET=$KAVITA_CLIENT_SECRET"
 
                 # Copy to namespaces
                 for target_ns in monitoring nextcloud media immich vaultwarden; do

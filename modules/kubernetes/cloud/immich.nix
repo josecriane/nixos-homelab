@@ -31,426 +31,184 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "immich-setup" ''
-                ${k8s.libShSource}
-                setup_preamble "${markerFile}" "Immich"
+        ${k8s.libShSource}
+        setup_preamble "${markerFile}" "Immich"
 
-                wait_for_k3s
-                wait_for_certificate
-                ensure_namespace "${ns}"
+        wait_for_k3s
+        wait_for_certificate
+        ensure_namespace "${ns}"
 
-                # Use existing password or generate new one
-                EXISTING_PASS=$($KUBECTL get secret immich-secrets -n ${ns} -o jsonpath='{.data.DB_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)
-                if [ -n "$EXISTING_PASS" ]; then
-                  DB_PASSWORD="$EXISTING_PASS"
-                  echo "Using existing password from immich-secrets"
-                else
-                  DB_PASSWORD=$(generate_hex 16)
-                  echo "Generated new password for immich"
-                fi
+        # Use existing password or generate new one
+        EXISTING_PASS=$($KUBECTL get secret immich-secrets -n ${ns} -o jsonpath='{.data.DB_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)
+        if [ -n "$EXISTING_PASS" ]; then
+          DB_PASSWORD="$EXISTING_PASS"
+          echo "Using existing password from immich-secrets"
+        else
+          DB_PASSWORD=$(generate_hex 16)
+          echo "Generated new password for immich"
+        fi
 
-                # Create secrets
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: v1
-        kind: Secret
-        metadata:
-          name: immich-secrets
-          namespace: ${ns}
-        type: Opaque
-        stringData:
-          DB_PASSWORD: "$DB_PASSWORD"
-          DB_HOSTNAME: "immich-postgres"
-          DB_USERNAME: "immich"
-          DB_DATABASE_NAME: "immich"
-          REDIS_HOSTNAME: "immich-redis"
-        EOF
+        store_credentials "${ns}" "immich-secrets" \
+          "DB_PASSWORD=$DB_PASSWORD" \
+          "DB_HOSTNAME=immich-postgres" \
+          "DB_USERNAME=immich" \
+          "DB_DATABASE_NAME=immich" \
+          "REDIS_HOSTNAME=immich-redis"
 
-                # Ensure NAS PV exists for photo library
-                PV_PHASE=$($KUBECTL get pv immich-data-pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-                if [ -n "$PV_PHASE" ]; then
-                  echo "PV immich-data-pv found ($PV_PHASE)"
-                else
-                  ${
-                    if cloudHostPath != null then
-                      ''
-                                  echo "PV immich-data-pv not found, creating..."
-                                  mkdir -p "${cloudHostPath}"/{encoded-video,library,profile,thumbs,upload,backups} 2>/dev/null || true
-                                  for dir in encoded-video library profile thumbs upload backups; do
-                                    touch "${cloudHostPath}/$dir/.immich" 2>/dev/null || true
-                                  done
-                                  chmod 777 "${cloudHostPath}" 2>/dev/null || true
-                                  for dir in encoded-video library profile thumbs upload backups; do
-                                    chmod 777 "${cloudHostPath}/$dir" 2>/dev/null || true
-                                  done
-                                  cat <<PVFALLBACKEOF | $KUBECTL apply -f -
-                        apiVersion: v1
-                        kind: PersistentVolume
-                        metadata:
-                          name: immich-data-pv
-                        spec:
-                          capacity:
-                            storage: 1Ti
-                          accessModes:
-                            - ReadWriteOnce
-                          persistentVolumeReclaimPolicy: Retain
-                          storageClassName: nas-storage
-                          hostPath:
-                            path: ${cloudHostPath}
-                            type: DirectoryOrCreate
-                        PVFALLBACKEOF
-                                  echo "PV immich-data-pv created (fallback)"
-                      ''
-                    else
-                      ''
-                        echo "WARNING: PV immich-data-pv not found and no cloudPaths configured"
-                      ''
-                  }
-                fi
-
-                # NAS-backed PVC for photo library
-                EXISTING_LIB_PVC=$($KUBECTL get pvc immich-library -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-                if [ "$EXISTING_LIB_PVC" = "Bound" ]; then
-                  echo "PVC immich-library already Bound, skipping"
-                else
-                  cat <<LIBPVCEOF | $KUBECTL apply -f -
-        apiVersion: v1
-        kind: PersistentVolumeClaim
-        metadata:
-          name: immich-library
-          namespace: ${ns}
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          storageClassName: nas-storage
-          resources:
-            requests:
-              storage: 1Ti
-          volumeName: immich-data-pv
-        LIBPVCEOF
-                  echo "PVC immich-library created (NAS-backed)"
-                  for i in $(seq 1 30); do
-                    STATUS=$($KUBECTL get pvc immich-library -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
-                    if [ "$STATUS" = "Bound" ]; then
-                      echo "PVC immich-library: Bound"
-                      break
-                    fi
-                    echo "  PVC status: $STATUS ($i/30)"
-                    sleep 5
-                  done
-                fi
-
-                # Ensure Immich upload subdirectories and integrity markers exist
-                ${
-                  if cloudHostPath != null then
-                    ''
-                      IMMICH_UPLOAD="${cloudHostPath}"
-                    ''
-                  else
-                    ''
-                      IMMICH_UPLOAD=""
-                    ''
-                }
-                if [ -n "$IMMICH_UPLOAD" ]; then
-                  for dir in encoded-video library profile thumbs upload backups; do
-                    mkdir -p "$IMMICH_UPLOAD/$dir" 2>/dev/null || true
-                    [ ! -f "$IMMICH_UPLOAD/$dir/.immich" ] && touch "$IMMICH_UPLOAD/$dir/.immich" 2>/dev/null || true
-                  done
-                  chmod 777 "$IMMICH_UPLOAD" 2>/dev/null || true
-                  for dir in encoded-video library profile thumbs upload backups; do
-                    chmod 777 "$IMMICH_UPLOAD/$dir" 2>/dev/null || true
-                  done
-                  echo "Immich upload directories prepared"
-                fi
-
-                # Local PVCs for postgres and ML cache (good I/O needed).
-                # storageClassName: longhorn is declared explicitly so apply
-                # stays idempotent against pre-existing PVCs (SC is immutable).
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: v1
-        kind: PersistentVolumeClaim
-        metadata:
-          name: immich-postgres
-          namespace: ${ns}
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          storageClassName: longhorn
-          resources:
-            requests:
-              storage: 5Gi
-        ---
-        apiVersion: v1
-        kind: PersistentVolumeClaim
-        metadata:
-          name: immich-ml-cache
-          namespace: ${ns}
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          storageClassName: longhorn
-          resources:
-            requests:
-              storage: 10Gi
-        EOF
-
-                # PostgreSQL with pgvector
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: immich-postgres
-          namespace: ${ns}
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: immich-postgres
-          template:
-            metadata:
-              labels:
-                app: immich-postgres
-            spec:
-              containers:
-              - name: postgres
-                image: tensorchord/pgvecto-rs:pg16-v0.2.1
-                env:
-                - name: POSTGRES_USER
-                  value: "immich"
-                - name: POSTGRES_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: immich-secrets
-                      key: DB_PASSWORD
-                - name: POSTGRES_DB
-                  value: "immich"
-                ports:
-                - containerPort: 5432
-                resources:
-                  requests:
-                    cpu: 100m
-                    memory: 256Mi
-                  limits:
-                    memory: 1Gi
-                volumeMounts:
-                - name: data
-                  mountPath: /var/lib/postgresql/data
-              volumes:
-              - name: data
-                persistentVolumeClaim:
-                  claimName: immich-postgres
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: immich-postgres
-          namespace: ${ns}
-        spec:
-          selector:
-            app: immich-postgres
-          ports:
-          - port: 5432
-            targetPort: 5432
-        EOF
-
-                # Redis
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: immich-redis
-          namespace: ${ns}
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: immich-redis
-          template:
-            metadata:
-              labels:
-                app: immich-redis
-            spec:
-              containers:
-              - name: redis
-                image: redis:7-alpine
-                ports:
-                - containerPort: 6379
-                resources:
-                  requests:
-                    cpu: 50m
-                    memory: 64Mi
-                  limits:
-                    memory: 256Mi
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: immich-redis
-          namespace: ${ns}
-        spec:
-          selector:
-            app: immich-redis
-          ports:
-          - port: 6379
-            targetPort: 6379
-        EOF
-
-                sleep 30
-
-                # Immich Server
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: immich-server
-          namespace: ${ns}
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: immich-server
-          template:
-            metadata:
-              labels:
-                app: immich-server
-            spec:
-              containers:
-              - name: immich-server
-                image: ghcr.io/immich-app/immich-server:v2.5.6
-                env:
-                - name: DB_HOSTNAME
-                  valueFrom:
-                    secretKeyRef:
-                      name: immich-secrets
-                      key: DB_HOSTNAME
-                - name: DB_USERNAME
-                  valueFrom:
-                    secretKeyRef:
-                      name: immich-secrets
-                      key: DB_USERNAME
-                - name: DB_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: immich-secrets
-                      key: DB_PASSWORD
-                - name: DB_DATABASE_NAME
-                  valueFrom:
-                    secretKeyRef:
-                      name: immich-secrets
-                      key: DB_DATABASE_NAME
-                - name: REDIS_HOSTNAME
-                  valueFrom:
-                    secretKeyRef:
-                      name: immich-secrets
-                      key: REDIS_HOSTNAME
-                - name: IMMICH_MACHINE_LEARNING_URL
-                  value: "http://immich-ml:3003"
-                - name: TZ
-                  value: "${serverConfig.timezone}"
-                ports:
-                - containerPort: 2283
-                resources:
-                  requests:
-                    cpu: 100m
-                    memory: 256Mi
-                  limits:
-                    memory: 3Gi
-                volumeMounts:
-                - name: library
-                  mountPath: /usr/src/app/upload
-              volumes:
-              - name: library
-                persistentVolumeClaim:
-                  claimName: immich-library
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: immich-server
-          namespace: ${ns}
-        spec:
-          selector:
-            app: immich-server
-          ports:
-          - port: 2283
-            targetPort: 2283
-        EOF
-
-                # Immich Machine Learning
-                cat <<EOF | $KUBECTL apply -f -
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: immich-ml
-          namespace: ${ns}
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: immich-ml
-          template:
-            metadata:
-              labels:
-                app: immich-ml
-            spec:
-              containers:
-              - name: immich-ml
-                image: ghcr.io/immich-app/immich-machine-learning:v2.5.6
-                env:
-                - name: TZ
-                  value: "${serverConfig.timezone}"
-                ports:
-                - containerPort: 3003
-                resources:
-                  requests:
-                    cpu: 200m
-                    memory: 512Mi
-                  limits:
-                    memory: 1536Mi
-                volumeMounts:
-                - name: cache
-                  mountPath: /cache
-              volumes:
-              - name: cache
-                persistentVolumeClaim:
-                  claimName: immich-ml-cache
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: immich-ml
-          namespace: ${ns}
-        spec:
-          selector:
-            app: immich-ml
-          ports:
-          - port: 3003
-            targetPort: 3003
-        EOF
-
-                # Wait for server
-                sleep 60
-                for i in $(seq 1 60); do
-                  READY=$($KUBECTL get pods -n ${ns} -l app=immich-server -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
-                  if [ "$READY" = "true" ]; then
-                    echo "Immich server ready"
-                    break
-                  fi
-                  echo "Waiting for Immich... ($i/60)"
-                  sleep 10
+        # Ensure NAS PV exists for photo library
+        PV_PHASE=$($KUBECTL get pv immich-data-pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        if [ -n "$PV_PHASE" ]; then
+          echo "PV immich-data-pv found ($PV_PHASE)"
+        else
+          ${
+            if cloudHostPath != null then
+              ''
+                echo "PV immich-data-pv not found, creating..."
+                mkdir -p "${cloudHostPath}"/{encoded-video,library,profile,thumbs,upload,backups} 2>/dev/null || true
+                for dir in encoded-video library profile thumbs upload backups; do
+                  touch "${cloudHostPath}/$dir/.immich" 2>/dev/null || true
                 done
+                chmod 777 "${cloudHostPath}" 2>/dev/null || true
+                for dir in encoded-video library profile thumbs upload backups; do
+                  chmod 777 "${cloudHostPath}/$dir" 2>/dev/null || true
+                done
+                ${k8s.applyManifestsScript {
+                  name = "immich-pv";
+                  manifests = [ ./immich-pv.yaml ];
+                  substitutions = {
+                    CLOUD_HOSTPATH = cloudHostPath;
+                  };
+                }}
+                echo "PV immich-data-pv created (fallback)"
+              ''
+            else
+              ''
+                echo "WARNING: PV immich-data-pv not found and no cloudPaths configured"
+              ''
+          }
+        fi
 
-                create_ingress_route "immich" "${ns}" "$(hostname photos)" "immich-server" "2283"
+        # NAS-backed PVC for photo library
+        EXISTING_LIB_PVC=$($KUBECTL get pvc immich-library -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        if [ "$EXISTING_LIB_PVC" = "Bound" ]; then
+          echo "PVC immich-library already Bound, skipping"
+        else
+          ${k8s.applyManifestsScript {
+            name = "immich-library";
+            manifests = [ ./immich-library.yaml ];
+            substitutions = {
+              NAMESPACE = ns;
+            };
+          }}
+          echo "PVC immich-library created (NAS-backed)"
+          for i in $(seq 1 30); do
+            STATUS=$($KUBECTL get pvc immich-library -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
+            if [ "$STATUS" = "Bound" ]; then
+              echo "PVC immich-library: Bound"
+              break
+            fi
+            echo "  PVC status: $STATUS ($i/30)"
+            sleep 5
+          done
+        fi
 
-                # Save credentials to K8s secret
-                store_credentials "${ns}" "immich-local-credentials" \
-                  "DB_PASSWORD=$DB_PASSWORD"
+        # Ensure Immich upload subdirectories and integrity markers exist
+        ${
+          if cloudHostPath != null then
+            ''
+              IMMICH_UPLOAD="${cloudHostPath}"
+            ''
+          else
+            ''
+              IMMICH_UPLOAD=""
+            ''
+        }
+        if [ -n "$IMMICH_UPLOAD" ]; then
+          for dir in encoded-video library profile thumbs upload backups; do
+            mkdir -p "$IMMICH_UPLOAD/$dir" 2>/dev/null || true
+            [ ! -f "$IMMICH_UPLOAD/$dir/.immich" ] && touch "$IMMICH_UPLOAD/$dir/.immich" 2>/dev/null || true
+          done
+          chmod 777 "$IMMICH_UPLOAD" 2>/dev/null || true
+          for dir in encoded-video library profile thumbs upload backups; do
+            chmod 777 "$IMMICH_UPLOAD/$dir" 2>/dev/null || true
+          done
+          echo "Immich upload directories prepared"
+        fi
 
-                print_success "Immich" \
-                  "URLs:" \
-                  "  URL: https://$(hostname photos)" \
-                  "" \
-                  "Create admin account on first access"
+        # Local PVCs for postgres and ML cache (good I/O needed).
+        # storageClassName: longhorn is declared explicitly so apply
+        # stays idempotent against pre-existing PVCs (SC is immutable).
+        ${k8s.applyManifestsScript {
+          name = "immich-pvcs";
+          manifests = [ ./immich-pvcs.yaml ];
+          substitutions = {
+            NAMESPACE = ns;
+          };
+        }}
 
-                create_marker "${markerFile}"
+        # PostgreSQL with pgvector
+        ${k8s.applyManifestsScript {
+          name = "immich-postgres";
+          manifests = [ ./immich-postgres.yaml ];
+          substitutions = {
+            NAMESPACE = ns;
+          };
+        }}
+
+        # Redis
+        ${k8s.applyManifestsScript {
+          name = "immich-redis";
+          manifests = [ ./immich-redis.yaml ];
+          substitutions = {
+            NAMESPACE = ns;
+          };
+        }}
+
+        sleep 30
+
+        # Immich Server
+        ${k8s.applyManifestsScript {
+          name = "immich-server";
+          manifests = [ ./immich-server.yaml ];
+          substitutions = {
+            NAMESPACE = ns;
+          };
+        }}
+
+        # Immich Machine Learning
+        ${k8s.applyManifestsScript {
+          name = "immich-ml";
+          manifests = [ ./immich-ml.yaml ];
+          substitutions = {
+            NAMESPACE = ns;
+          };
+        }}
+
+        # Wait for server
+        sleep 60
+        for i in $(seq 1 60); do
+          READY=$($KUBECTL get pods -n ${ns} -l app=immich-server -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
+          if [ "$READY" = "true" ]; then
+            echo "Immich server ready"
+            break
+          fi
+          echo "Waiting for Immich... ($i/60)"
+          sleep 10
+        done
+
+        create_ingress_route "immich" "${ns}" "$(hostname photos)" "immich-server" "2283"
+
+        # Save credentials to K8s secret
+        store_credentials "${ns}" "immich-local-credentials" \
+          "DB_PASSWORD=$DB_PASSWORD"
+
+        print_success "Immich" \
+          "URLs:" \
+          "  URL: https://$(hostname photos)" \
+          "" \
+          "Create admin account on first access"
+
+        create_marker "${markerFile}"
       '';
     };
   };

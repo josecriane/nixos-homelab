@@ -39,306 +39,237 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "nextcloud-setup" ''
-                ${k8s.libShSource}
-                setup_preamble "${markerFile}" "Nextcloud"
+        ${k8s.libShSource}
+        setup_preamble "${markerFile}" "Nextcloud"
 
-                wait_for_k3s
-                wait_for_traefik
-                wait_for_certificate
+        wait_for_k3s
+        wait_for_traefik
+        wait_for_certificate
 
-                helm_repo_add "nextcloud" "https://nextcloud.github.io/helm/"
-                ensure_namespace "${ns}"
+        helm_repo_add "nextcloud" "https://nextcloud.github.io/helm/"
+        ensure_namespace "${ns}"
 
-                # Reuse existing passwords if available (avoid breaking DB on re-runs)
-                NEXTCLOUD_ADMIN_PASSWORD=$(get_secret_value "${ns}" "nextcloud" "nextcloud-password")
-                if [ -n "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
-                  echo "Reusing existing Nextcloud admin password from K8s secret"
+        # Reuse existing passwords if available (avoid breaking DB on re-runs)
+        NEXTCLOUD_ADMIN_PASSWORD=$(get_secret_value "${ns}" "nextcloud" "nextcloud-password")
+        if [ -n "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
+          echo "Reusing existing Nextcloud admin password from K8s secret"
+        fi
+
+        POSTGRES_PASSWORD=$(get_secret_value "${ns}" "nextcloud-postgresql" "password")
+        if [ -n "$POSTGRES_PASSWORD" ]; then
+          echo "Reusing existing PostgreSQL password from K8s secret"
+        fi
+
+        # Fallback to credential secret
+        if [ -z "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
+          NEXTCLOUD_ADMIN_PASSWORD=$(get_secret_value "${ns}" "nextcloud-local-credentials" "NEXTCLOUD_ADMIN_PASSWORD")
+        fi
+        if [ -z "$POSTGRES_PASSWORD" ]; then
+          POSTGRES_PASSWORD=$(get_secret_value "${ns}" "nextcloud-local-credentials" "POSTGRES_PASSWORD")
+        fi
+
+        # Generate new only on first install
+        if [ -z "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
+          NEXTCLOUD_ADMIN_PASSWORD=$(generate_password 16)
+          echo "Generated new Nextcloud admin password"
+        fi
+        if [ -z "$POSTGRES_PASSWORD" ]; then
+          POSTGRES_PASSWORD=$(generate_hex 16)
+          echo "Generated new PostgreSQL password"
+        fi
+
+        # Handle reinstall: NAS data dir may have remnants from previous install
+        EXISTING_NC=$($HELM list -n ${ns} -q 2>/dev/null | grep -c "^nextcloud$" || echo "0")
+        ${
+          if cloudHostPath != null then
+            ''
+              if [ "$EXISTING_NC" = "0" ]; then
+                # Old install may have left data/ dir with user files, appdata, etc.
+                if [ -d "${cloudHostPath}/data" ]; then
+                  echo "Fresh install with existing NAS data, moving old data folder..."
+                  mv "${cloudHostPath}/data" "${cloudHostPath}/data.pre-reinstall.$(date +%s)" 2>/dev/null || true
                 fi
-
-                POSTGRES_PASSWORD=$(get_secret_value "${ns}" "nextcloud-postgresql" "password")
-                if [ -n "$POSTGRES_PASSWORD" ]; then
-                  echo "Reusing existing PostgreSQL password from K8s secret"
+                # Also check for admin folder at PV root (different old datadir configs)
+                if [ -d "${cloudHostPath}/admin" ]; then
+                  mv "${cloudHostPath}/admin" "${cloudHostPath}/admin.pre-reinstall.$(date +%s)" 2>/dev/null || true
                 fi
+              fi
+            ''
+          else
+            ""
+        }
 
-                # Fallback to credential secret
-                if [ -z "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
-                  NEXTCLOUD_ADMIN_PASSWORD=$(get_secret_value "${ns}" "nextcloud-local-credentials" "NEXTCLOUD_ADMIN_PASSWORD")
-                fi
-                if [ -z "$POSTGRES_PASSWORD" ]; then
-                  POSTGRES_PASSWORD=$(get_secret_value "${ns}" "nextcloud-local-credentials" "POSTGRES_PASSWORD")
-                fi
+        # Ensure NAS data directory has correct ownership for www-data (uid 33)
+        ${
+          if cloudHostPath != null then
+            ''
+              mkdir -p "${cloudHostPath}/nextcloud" 2>/dev/null || true
+              chown -R 33:33 "${cloudHostPath}" 2>/dev/null || true
+            ''
+          else
+            ""
+        }
 
-                # Generate new only on first install
-                if [ -z "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
-                  NEXTCLOUD_ADMIN_PASSWORD=$(generate_password 16)
-                  echo "Generated new Nextcloud admin password"
-                fi
-                if [ -z "$POSTGRES_PASSWORD" ]; then
-                  POSTGRES_PASSWORD=$(generate_hex 16)
-                  echo "Generated new PostgreSQL password"
-                fi
+        # Delete redis StatefulSet before upgrade (immutable spec fields prevent in-place update)
+        $KUBECTL delete statefulset -n ${ns} -l app.kubernetes.io/name=redis --ignore-not-found 2>/dev/null || true
 
-                # Handle reinstall: NAS data dir may have remnants from previous install
-                EXISTING_NC=$($HELM list -n ${ns} -q 2>/dev/null | grep -c "^nextcloud$" || echo "0")
-                ${
-                  if cloudHostPath != null then
-                    ''
-                      if [ "$EXISTING_NC" = "0" ]; then
-                        # Old install may have left data/ dir with user files, appdata, etc.
-                        if [ -d "${cloudHostPath}/data" ]; then
-                          echo "Fresh install with existing NAS data, moving old data folder..."
-                          mv "${cloudHostPath}/data" "${cloudHostPath}/data.pre-reinstall.$(date +%s)" 2>/dev/null || true
-                        fi
-                        # Also check for admin folder at PV root (different old datadir configs)
-                        if [ -d "${cloudHostPath}/admin" ]; then
-                          mv "${cloudHostPath}/admin" "${cloudHostPath}/admin.pre-reinstall.$(date +%s)" 2>/dev/null || true
-                        fi
-                      fi
-                    ''
-                  else
-                    ""
-                }
+        # Wait for NAS PV to exist (created by nfs-storage-setup)
+        echo "Waiting for PV nextcloud-data-pv..."
+        PV_FOUND=""
+        for i in $(seq 1 30); do
+          PV_PHASE=$($KUBECTL get pv nextcloud-data-pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+          if [ -n "$PV_PHASE" ]; then
+            echo "PV nextcloud-data-pv found ($PV_PHASE)"
+            PV_FOUND="true"
+            break
+          fi
+          echo "PV not found yet ($i/30)"
+          sleep 10
+        done
 
-                # Ensure NAS data directory has correct ownership for www-data (uid 33)
-                ${
-                  if cloudHostPath != null then
-                    ''
-                      mkdir -p "${cloudHostPath}/nextcloud" 2>/dev/null || true
-                      chown -R 33:33 "${cloudHostPath}" 2>/dev/null || true
-                    ''
-                  else
-                    ""
-                }
-
-                # Delete redis StatefulSet before upgrade (immutable spec fields prevent in-place update)
-                $KUBECTL delete statefulset -n ${ns} -l app.kubernetes.io/name=redis --ignore-not-found 2>/dev/null || true
-
-                # Wait for NAS PV to exist (created by nfs-storage-setup)
-                echo "Waiting for PV nextcloud-data-pv..."
-                PV_FOUND=""
-                for i in $(seq 1 30); do
-                  PV_PHASE=$($KUBECTL get pv nextcloud-data-pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-                  if [ -n "$PV_PHASE" ]; then
-                    echo "PV nextcloud-data-pv found ($PV_PHASE)"
-                    PV_FOUND="true"
-                    break
-                  fi
-                  echo "PV not found yet ($i/30)"
-                  sleep 10
-                done
-
-                ${
-                  if cloudHostPath != null then
-                    ''
-                              # Fallback: create PV if nfs-storage-setup didn't create it
-                              if [ -z "$PV_FOUND" ]; then
-                                echo "PV not found after waiting, creating as fallback..."
-                                mkdir -p "${cloudHostPath}" 2>/dev/null || true
-                                chmod 777 "${cloudHostPath}" 2>/dev/null || true
-                                chown -R 33:33 "${cloudHostPath}" 2>/dev/null || true
-                                cat <<PVFALLBACKEOF | $KUBECTL apply -f -
-                      apiVersion: v1
-                      kind: PersistentVolume
-                      metadata:
-                        name: nextcloud-data-pv
-                      spec:
-                        capacity:
-                          storage: 1Ti
-                        accessModes:
-                          - ReadWriteOnce
-                        persistentVolumeReclaimPolicy: Retain
-                        storageClassName: nas-storage
-                        hostPath:
-                          path: ${cloudHostPath}
-                          type: DirectoryOrCreate
-                      PVFALLBACKEOF
-                                echo "PV nextcloud-data-pv created (fallback)"
-                              fi
-                    ''
-                  else
-                    ""
-                }
-
-                # Create NAS-backed PVC for Nextcloud data
-                EXISTING_NC_PVC=$($KUBECTL get pvc nextcloud-data -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-                if [ "$EXISTING_NC_PVC" = "Bound" ]; then
-                  echo "PVC nextcloud-data already Bound, skipping"
-                else
-                  cat <<NCPVCEOF | $KUBECTL apply -f -
-        apiVersion: v1
-        kind: PersistentVolumeClaim
-        metadata:
-          name: nextcloud-data
-          namespace: ${ns}
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          storageClassName: nas-storage
-          resources:
-            requests:
-              storage: 1Ti
-          volumeName: nextcloud-data-pv
-        NCPVCEOF
-                  echo "PVC nextcloud-data created (NAS-backed)"
-                  for i in $(seq 1 30); do
-                    STATUS=$($KUBECTL get pvc nextcloud-data -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
-                    if [ "$STATUS" = "Bound" ]; then
-                      echo "PVC nextcloud-data: Bound"
-                      break
-                    fi
-                    echo "  PVC status: $STATUS ($i/30)"
-                    sleep 5
-                  done
-                fi
-
-                # Install Nextcloud
-                set +e
-                $HELM upgrade --install nextcloud nextcloud/nextcloud \
-                  --namespace ${ns} \
-                  --set nextcloud.host="$(hostname cloud)" \
-                  --set nextcloud.username=admin \
-                  --set nextcloud.password="$NEXTCLOUD_ADMIN_PASSWORD" \
-                  --set nextcloud.trustedDomains[0]="$(hostname cloud)" \
-                  --set 'nextcloud.extraEnv[0].name=OVERWRITEPROTOCOL' \
-                  --set 'nextcloud.extraEnv[0].value=https' \
-                  --set 'nextcloud.extraEnv[1].name=OVERWRITEHOST' \
-                  --set 'nextcloud.extraEnv[1].value='$(hostname cloud) \
-                  --set 'nextcloud.extraEnv[2].name=TRUSTED_PROXIES' \
-                  --set 'nextcloud.extraEnv[2].value=10.42.0.0/16 10.43.0.0/16 ${lanSubnet}' \
-                  --set persistence.enabled=true \
-                  --set persistence.size=20Gi \
-                  --set 'nextcloud.datadir=/data/nextcloud' \
-                  --set persistence.nextcloudData.enabled=true \
-                  --set persistence.nextcloudData.existingClaim=nextcloud-data \
-                  --set internalDatabase.enabled=false \
-                  --set externalDatabase.enabled=true \
-                  --set externalDatabase.type=postgresql \
-                  --set externalDatabase.host=nextcloud-postgresql \
-                  --set externalDatabase.user=nextcloud \
-                  --set externalDatabase.password="$POSTGRES_PASSWORD" \
-                  --set externalDatabase.database=nextcloud \
-                  --set postgresql.enabled=true \
-                  --set postgresql.auth.username=nextcloud \
-                  --set postgresql.auth.password="$POSTGRES_PASSWORD" \
-                  --set postgresql.auth.database=nextcloud \
-                  --set postgresql.primary.persistence.enabled=true \
-                  --set postgresql.primary.persistence.size=5Gi \
-                  --set redis.enabled=true \
-                  --set redis.architecture=standalone \
-                  --set redis.auth.enabled=false \
-                  --set redis.master.persistence.enabled=false \
-                  --set 'nextcloud.configs.custom\.config\.php=<?php $CONFIG = array("skeletondirectory" => "");' \
-                  --set ingress.enabled=false \
-                  --set livenessProbe.enabled=false \
-                  --set readinessProbe.enabled=false \
-                  --set startupProbe.enabled=true \
-                  --set startupProbe.initialDelaySeconds=60 \
-                  --set startupProbe.periodSeconds=10 \
-                  --set startupProbe.failureThreshold=30 \
-                  --timeout 15m 2>&1
-                HELM_EXIT=$?
-                set -e
-
-                if [ $HELM_EXIT -ne 0 ]; then
-                  echo "Helm upgrade failed (exit $HELM_EXIT), retrying with --force..."
-                  $HELM upgrade --install nextcloud nextcloud/nextcloud \
-                    --namespace ${ns} \
-                    --set nextcloud.host="$(hostname cloud)" \
-                    --set nextcloud.username=admin \
-                    --set nextcloud.password="$NEXTCLOUD_ADMIN_PASSWORD" \
-                    --set nextcloud.trustedDomains[0]="$(hostname cloud)" \
-                    --set 'nextcloud.extraEnv[0].name=OVERWRITEPROTOCOL' \
-                    --set 'nextcloud.extraEnv[0].value=https' \
-                    --set 'nextcloud.extraEnv[1].name=OVERWRITEHOST' \
-                    --set 'nextcloud.extraEnv[1].value='$(hostname cloud) \
-                    --set 'nextcloud.extraEnv[2].name=TRUSTED_PROXIES' \
-                    --set 'nextcloud.extraEnv[2].value=10.42.0.0/16 10.43.0.0/16 ${lanSubnet}' \
-                    --set persistence.enabled=true \
-                    --set persistence.size=20Gi \
-                    --set 'nextcloud.datadir=/data/nextcloud' \
-                    --set persistence.nextcloudData.enabled=true \
-                    --set persistence.nextcloudData.existingClaim=nextcloud-data \
-                    --set internalDatabase.enabled=false \
-                    --set externalDatabase.enabled=true \
-                    --set externalDatabase.type=postgresql \
-                    --set externalDatabase.host=nextcloud-postgresql \
-                    --set externalDatabase.user=nextcloud \
-                    --set externalDatabase.password="$POSTGRES_PASSWORD" \
-                    --set externalDatabase.database=nextcloud \
-                    --set postgresql.enabled=true \
-                    --set postgresql.auth.username=nextcloud \
-                    --set postgresql.auth.password="$POSTGRES_PASSWORD" \
-                    --set postgresql.auth.database=nextcloud \
-                    --set postgresql.primary.persistence.enabled=true \
-                    --set postgresql.primary.persistence.size=5Gi \
-                    --set redis.enabled=true \
-                    --set redis.architecture=standalone \
-                    --set redis.auth.enabled=false \
-                    --set redis.master.persistence.enabled=false \
-                    --set 'nextcloud.configs.custom\.config\.php=<?php $CONFIG = array("skeletondirectory" => "");' \
-                    --set ingress.enabled=false \
-                    --set livenessProbe.enabled=false \
-                    --set readinessProbe.enabled=false \
-                    --set startupProbe.enabled=true \
-                    --set startupProbe.initialDelaySeconds=60 \
-                    --set startupProbe.periodSeconds=10 \
-                    --set startupProbe.failureThreshold=30 \
-                    --force \
-                    --timeout 15m
-                fi
-
-                # Wait for pod (Nextcloud takes longer)
-                sleep 30
-                for i in $(seq 1 60); do
-                  READY=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
-                  if [ "$READY" = "true" ]; then
-                    echo "Nextcloud is ready"
-                    break
-                  fi
-                  echo "Waiting for Nextcloud... ($i/60)"
-                  sleep 10
-                done
-
-                # Verify Nextcloud is fully installed (auto-install may not trigger if PVC had leftover files)
-                NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}')
-                INSTALLED=$($KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- grep "'installed' => true" /var/www/html/config/config.php 2>/dev/null || echo "")
-                if [ -z "$INSTALLED" ]; then
-                  echo "Auto-install did not complete, running manual install..."
-                  # Clean up partial admin folder left by failed auto-install
-                  $KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- bash -c \
-                    'if [ -d /data/nextcloud/admin ]; then echo "Removing partial admin folder..."; rm -rf /data/nextcloud/admin; fi' 2>/dev/null || true
-                  # Read actual password from K8s secret (Helm may generate its own)
-                  ACTUAL_PG_PASS=$($KUBECTL get secret nextcloud-postgresql -n ${ns} -o jsonpath='{.data.password}' | base64 -d)
-                  $KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- su -s /bin/bash www-data -c \
-                    "php occ maintenance:install --database=pgsql --database-host=nextcloud-postgresql --database-name=nextcloud --database-user=nextcloud --database-pass='$ACTUAL_PG_PASS' --admin-user=admin --admin-pass='$NEXTCLOUD_ADMIN_PASSWORD' --data-dir=/data/nextcloud"
-                  $KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- su -s /bin/bash www-data -c \
-                    "php occ config:system:set trusted_domains 0 --value=$(hostname cloud)"
-                  echo "Manual install completed"
-                fi
-
-                # IngressRoute with headers middleware
+        ${
+          if cloudHostPath != null then
+            ''
+              # Fallback: create PV if nfs-storage-setup didn't create it
+              if [ -z "$PV_FOUND" ]; then
+                echo "PV not found after waiting, creating as fallback..."
+                mkdir -p "${cloudHostPath}" 2>/dev/null || true
+                chmod 777 "${cloudHostPath}" 2>/dev/null || true
+                chown -R 33:33 "${cloudHostPath}" 2>/dev/null || true
                 ${k8s.applyManifestsScript {
-                  name = "nextcloud";
-                  manifests = [ ./manifests.yaml ];
+                  name = "nextcloud-pv";
+                  manifests = [ ./nas-pv.yaml ];
                   substitutions = {
-                    NAMESPACE = ns;
+                    CLOUD_HOSTPATH = cloudHostPath;
                   };
                 }}
+                echo "PV nextcloud-data-pv created (fallback)"
+              fi
+            ''
+          else
+            ""
+        }
 
-                create_ingress_route "nextcloud" "${ns}" "$(hostname cloud)" "nextcloud" "8080" "nextcloud-headers:${ns}"
+        # Create NAS-backed PVC for Nextcloud data
+        EXISTING_NC_PVC=$($KUBECTL get pvc nextcloud-data -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        if [ "$EXISTING_NC_PVC" = "Bound" ]; then
+          echo "PVC nextcloud-data already Bound, skipping"
+        else
+          ${k8s.applyManifestsScript {
+            name = "nextcloud-data-pvc";
+            manifests = [ ./data-pvc.yaml ];
+            substitutions = {
+              NAMESPACE = ns;
+            };
+          }}
+          echo "PVC nextcloud-data created (NAS-backed)"
+          for i in $(seq 1 30); do
+            STATUS=$($KUBECTL get pvc nextcloud-data -n ${ns} -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
+            if [ "$STATUS" = "Bound" ]; then
+              echo "PVC nextcloud-data: Bound"
+              break
+            fi
+            echo "  PVC status: $STATUS ($i/30)"
+            sleep 5
+          done
+        fi
 
-                # Save credentials to K8s secret
-                store_credentials "${ns}" "nextcloud-local-credentials" \
-                  "NEXTCLOUD_ADMIN_USER=admin" "NEXTCLOUD_ADMIN_PASSWORD=$NEXTCLOUD_ADMIN_PASSWORD" \
-                  "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+        # Install Nextcloud
+        CLOUD_HOST=$(hostname cloud)
+        helm_install "nextcloud" "nextcloud/nextcloud" "${ns}" "15m" \
+          "nextcloud.host=$CLOUD_HOST" \
+          "nextcloud.username=admin" \
+          "nextcloud.password=$NEXTCLOUD_ADMIN_PASSWORD" \
+          "nextcloud.trustedDomains[0]=$CLOUD_HOST" \
+          "nextcloud.extraEnv[0].name=OVERWRITEPROTOCOL" \
+          "nextcloud.extraEnv[0].value=https" \
+          "nextcloud.extraEnv[1].name=OVERWRITEHOST" \
+          "nextcloud.extraEnv[1].value=$CLOUD_HOST" \
+          "nextcloud.extraEnv[2].name=TRUSTED_PROXIES" \
+          "nextcloud.extraEnv[2].value=10.42.0.0/16 10.43.0.0/16 ${lanSubnet}" \
+          "persistence.enabled=true" \
+          "persistence.size=20Gi" \
+          "nextcloud.datadir=/data/nextcloud" \
+          "persistence.nextcloudData.enabled=true" \
+          "persistence.nextcloudData.existingClaim=nextcloud-data" \
+          "internalDatabase.enabled=false" \
+          "externalDatabase.enabled=true" \
+          "externalDatabase.type=postgresql" \
+          "externalDatabase.host=nextcloud-postgresql" \
+          "externalDatabase.user=nextcloud" \
+          "externalDatabase.password=$POSTGRES_PASSWORD" \
+          "externalDatabase.database=nextcloud" \
+          "postgresql.enabled=true" \
+          "postgresql.auth.username=nextcloud" \
+          "postgresql.auth.password=$POSTGRES_PASSWORD" \
+          "postgresql.auth.database=nextcloud" \
+          "postgresql.primary.persistence.enabled=true" \
+          "postgresql.primary.persistence.size=5Gi" \
+          "redis.enabled=true" \
+          "redis.architecture=standalone" \
+          "redis.auth.enabled=false" \
+          "redis.master.persistence.enabled=false" \
+          'nextcloud.configs.custom\.config\.php=<?php $CONFIG = array("skeletondirectory" => "");' \
+          "ingress.enabled=false" \
+          "livenessProbe.enabled=false" \
+          "readinessProbe.enabled=false" \
+          "startupProbe.enabled=true" \
+          "startupProbe.initialDelaySeconds=60" \
+          "startupProbe.periodSeconds=10" \
+          "startupProbe.failureThreshold=30"
 
-                print_success "Nextcloud" \
-                  "URLs:" \
-                  "  URL: https://$(hostname cloud)" \
-                  "" \
-                  "Credentials: admin / $NEXTCLOUD_ADMIN_PASSWORD"
+        # Wait for pod (Nextcloud takes longer)
+        sleep 30
+        for i in $(seq 1 60); do
+          READY=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
+          if [ "$READY" = "true" ]; then
+            echo "Nextcloud is ready"
+            break
+          fi
+          echo "Waiting for Nextcloud... ($i/60)"
+          sleep 10
+        done
 
-                create_marker "${markerFile}"
+        # Verify Nextcloud is fully installed (auto-install may not trigger if PVC had leftover files)
+        NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}')
+        INSTALLED=$($KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- grep "'installed' => true" /var/www/html/config/config.php 2>/dev/null || echo "")
+        if [ -z "$INSTALLED" ]; then
+          echo "Auto-install did not complete, running manual install..."
+          # Clean up partial admin folder left by failed auto-install
+          $KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- bash -c \
+            'if [ -d /data/nextcloud/admin ]; then echo "Removing partial admin folder..."; rm -rf /data/nextcloud/admin; fi' 2>/dev/null || true
+          # Read actual password from K8s secret (Helm may generate its own)
+          ACTUAL_PG_PASS=$($KUBECTL get secret nextcloud-postgresql -n ${ns} -o jsonpath='{.data.password}' | base64 -d)
+          $KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- su -s /bin/bash www-data -c \
+            "php occ maintenance:install --database=pgsql --database-host=nextcloud-postgresql --database-name=nextcloud --database-user=nextcloud --database-pass='$ACTUAL_PG_PASS' --admin-user=admin --admin-pass='$NEXTCLOUD_ADMIN_PASSWORD' --data-dir=/data/nextcloud"
+          $KUBECTL exec -n ${ns} $NC_POD -c nextcloud -- su -s /bin/bash www-data -c \
+            "php occ config:system:set trusted_domains 0 --value=$(hostname cloud)"
+          echo "Manual install completed"
+        fi
+
+        # IngressRoute with headers middleware
+        ${k8s.applyManifestsScript {
+          name = "nextcloud";
+          manifests = [ ./manifests.yaml ];
+          substitutions = {
+            NAMESPACE = ns;
+          };
+        }}
+
+        create_ingress_route "nextcloud" "${ns}" "$(hostname cloud)" "nextcloud" "8080" "nextcloud-headers:${ns}"
+
+        # Save credentials to K8s secret
+        store_credentials "${ns}" "nextcloud-local-credentials" \
+          "NEXTCLOUD_ADMIN_USER=admin" "NEXTCLOUD_ADMIN_PASSWORD=$NEXTCLOUD_ADMIN_PASSWORD" \
+          "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+
+        print_success "Nextcloud" \
+          "URLs:" \
+          "  URL: https://$(hostname cloud)" \
+          "" \
+          "Credentials: admin / $NEXTCLOUD_ADMIN_PASSWORD"
+
+        create_marker "${markerFile}"
       '';
     };
   };
