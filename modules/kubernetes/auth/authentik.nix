@@ -69,7 +69,15 @@ in
                   "redis.master.persistence.size=1Gi" \
                   "server.ingress.enabled=false" \
                   "server.replicas=1" \
-                  "worker.replicas=1"
+                  "worker.replicas=1" \
+                  "authentik.web.workers=1" \
+                  "server.resources.requests.memory=384Mi" \
+                  "server.resources.limits.memory=640Mi" \
+                  "worker.resources.requests.memory=320Mi" \
+                  "worker.resources.limits.memory=576Mi" \
+                  "postgresql.primary.resources.requests.memory=128Mi" \
+                  "postgresql.primary.resources.limits.memory=256Mi" \
+                  "postgresql.primary.extendedConfiguration=shared_buffers = 32MB"
 
                 wait_for_pod "${ns}" "app.kubernetes.io/name=authentik,app.kubernetes.io/component=server" 600
 
