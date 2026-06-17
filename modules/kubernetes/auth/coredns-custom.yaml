@@ -18,4 +18,9 @@ data:
         rcode NOERROR
         fallthrough
       }
+      # Non-A/AAAA queries (SOA, TXT, CNAME) must reach upstream. Without this
+      # the zone block has no resolver after the templates, so cert-manager's
+      # DNS-01 self-check (SOA of _acme-challenge.__DOMAIN__) gets SERVFAIL and
+      # certificate renewals hang until the cert expires.
+      forward . /etc/resolv.conf
     }

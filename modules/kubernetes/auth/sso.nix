@@ -56,7 +56,7 @@ in
 
                 # Check if CoreDNS custom config already exists and is correct
                 CURRENT_CONFIG=$($KUBECTL get configmap coredns-custom -n kube-system -o jsonpath='{.data.local-dns\.server}' 2>/dev/null || echo "")
-                if echo "$CURRENT_CONFIG" | grep -q "${serverConfig.traefikIP}"; then
+                if echo "$CURRENT_CONFIG" | grep -q "${serverConfig.traefikIP}" && echo "$CURRENT_CONFIG" | grep -q "forward"; then
                   echo "CoreDNS already configured correctly"
                 else
                   echo "Creating/updating CoreDNS configuration..."
