@@ -18,6 +18,41 @@ let
   configMarkerFile = "/var/lib/jellyfin-config-setup-done";
   jellyfinHostname = k8s.hostname "jellyfin";
 
+  defaultLibraries = [
+    {
+      type = "movies";
+      name = "Movies";
+      path = "/data/movies";
+    }
+    {
+      type = "tvshows";
+      name = "TV Shows";
+      path = "/data/tv";
+    }
+    {
+      type = "music";
+      name = "Music";
+      path = "/data/music";
+    }
+    {
+      type = "movies";
+      name = "Peliculas ES";
+      path = "/data/movies-es";
+    }
+    {
+      type = "tvshows";
+      name = "Series ES";
+      path = "/data/tv-es";
+    }
+  ];
+  libraries = (serverConfig.jellyfin or { }).libraries or defaultLibraries;
+  libraryNames = map (l: l.name) libraries;
+  libraryEntries = lib.concatMapStringsSep " " (l: ''"${l.type}:${l.name}:${l.path}"'') libraries;
+  libraryPaths = lib.concatMapStringsSep " " (l: l.path) libraries;
+  removedLibraries = lib.concatMapStringsSep " " (n: ''"${n}"'') (
+    lib.filter (n: !(lib.elem n libraryNames)) (map (l: l.name) defaultLibraries)
+  );
+
   release = k8s.createHelmRelease {
     name = "jellyfin";
     namespace = ns;
@@ -143,7 +178,7 @@ lib.recursiveUpdate release {
         if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASSWORD" ]; then
 
           JELLYFIN_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyfin --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
-          [ -n "$JELLYFIN_POD" ] && $KUBECTL exec -n ${ns} $JELLYFIN_POD -- mkdir -p /data/movies /data/movies-es /data/tv /data/tv-es /data/music 2>/dev/null || true
+          [ -n "$JELLYFIN_POD" ] && $KUBECTL exec -n ${ns} $JELLYFIN_POD -- mkdir -p ${libraryPaths} 2>/dev/null || true
 
           AUTH_RESPONSE=$($CURL -s -X POST "$JELLYFIN_URL/Users/AuthenticateByName" \
             -H "Content-Type: application/json" \
@@ -154,7 +189,14 @@ lib.recursiveUpdate release {
           if [ -n "$ACCESS_TOKEN" ]; then
             EXISTING_LIBS=$($CURL -s "$JELLYFIN_URL/Library/VirtualFolders?api_key=$ACCESS_TOKEN" 2>/dev/null)
 
-            for lib_entry in "movies:Movies:/data/movies" "tvshows:TV Shows:/data/tv" "music:Music:/data/music" "movies:Peliculas ES:/data/movies-es" "tvshows:Series ES:/data/tv-es"; do
+            for lib_name in ${removedLibraries}; do
+              if echo "$EXISTING_LIBS" | grep -q "\"Name\":\"$lib_name\""; then
+                $CURL -s -X DELETE "$JELLYFIN_URL/Library/VirtualFolders?name=$(echo $lib_name | sed 's/ /%20/g')&refreshLibrary=false&api_key=$ACCESS_TOKEN" 2>/dev/null || true
+                echo "  Library removed: $lib_name"
+              fi
+            done
+
+            for lib_entry in ${libraryEntries}; do
               lib_type=$(echo "$lib_entry" | cut -d: -f1)
               lib_name=$(echo "$lib_entry" | cut -d: -f2)
               lib_path=$(echo "$lib_entry" | cut -d: -f3)
