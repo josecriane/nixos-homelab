@@ -71,8 +71,12 @@ in
                   "server.replicas=1" \
                   "worker.replicas=1" \
                   "authentik.web.workers=1" \
-                  "server.resources.requests.memory=384Mi" \
-                  "server.resources.limits.memory=640Mi" \
+                  "server.resources.requests.memory=512Mi" \
+                  "server.resources.limits.memory=1Gi" \
+                  "server.livenessProbe.timeoutSeconds=10" \
+                  "server.livenessProbe.failureThreshold=5" \
+                  "server.readinessProbe.timeoutSeconds=10" \
+                  "server.readinessProbe.failureThreshold=5" \
                   "worker.resources.requests.memory=320Mi" \
                   "worker.resources.limits.memory=576Mi" \
                   "postgresql.primary.resources.requests.memory=128Mi" \
