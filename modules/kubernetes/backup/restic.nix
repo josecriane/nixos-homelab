@@ -41,6 +41,8 @@ let
 
   stageDir = "/run/backup-volumes";
 
+  extraPaths = serverConfig.backup.extraPaths or [ ];
+
   backupDirIsBind =
     useNFS
     && lib.any (cfg: (cfg.enabled or false) && lib.elem "backups" (cfg.mediaPaths or [ ])) (
@@ -162,6 +164,8 @@ let
     "*/media-library/*"
     "*jellyfin*/data/transcodes/*"
     "*qbittorrent*/downloads/*"
+    "*immich*/thumbs/*"
+    "*immich*/encoded-video/*"
     "*.tmp"
     "*.log"
   ];
@@ -685,16 +689,33 @@ in
           exit 1
         fi
 
+        EXTRA_PATHS=""
+        EXTRA_MISSING=0
+        ${lib.optionalString (extraPaths != [ ]) ''
+          echo ""
+          echo "Extra paths..."
+          for P in ${lib.escapeShellArgs extraPaths}; do
+            if [ -d "$P" ]; then
+              EXTRA_PATHS="$EXTRA_PATHS $P"
+              echo "  including $P"
+            else
+              echo "  ERROR: configured extra path is missing: $P"
+              EXTRA_MISSING=1
+            fi
+          done
+        ''}
+
         echo ""
-        echo "Backing up $STAGED volume(s) plus ${dumpDir}"
-        echo "Excluding: media, transcodes, downloads"
+        echo "Backing up $STAGED volume(s) plus ${dumpDir}$EXTRA_PATHS"
+        echo "Excluding: media, transcodes, downloads, immich derivatives"
 
         ${restic} backup \
           --tag full \
           --tag weekly \
           --exclude-file=${excludeFile} \
           "${stageDir}" \
-          ${dumpDir}
+          ${dumpDir} \
+          $EXTRA_PATHS
 
         # Cleanup sensitive dumps after backup
         rm -rf "${dumpDir}/k8s-secrets"
@@ -702,6 +723,12 @@ in
         echo ""
         echo "Full backup completed"
         ${restic} snapshots --latest 3 --tag full
+
+        if [ "$EXTRA_MISSING" -ne 0 ]; then
+          echo ""
+          echo "ERROR: some configured extra paths were missing (see above)."
+          exit 1
+        fi
 
         if [ "$DUMP_RC" -ne 0 ]; then
           echo ""
