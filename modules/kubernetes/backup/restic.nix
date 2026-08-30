@@ -122,7 +122,17 @@ let
       if [ -b "/dev/longhorn/$pv" ]; then
         targets=$(${findmnt} -n -o TARGET "/dev/longhorn/$pv" 2>/dev/null || true)
         [ -n "$targets" ] || return 1
-        printf '%s\n' "$targets" | grep -m1 globalmount || printf '%s\n' "$targets" | head -1
+        local first="" t
+        for t in $targets; do
+          [ -n "$first" ] || first="$t"
+          case "$t" in
+            *globalmount*)
+              printf '%s\n' "$t"
+              return 0
+              ;;
+          esac
+        done
+        printf '%s\n' "$first"
         return 0
       fi
 
@@ -221,12 +231,21 @@ let
             DUMP_RC=''${PIPESTATUS[0]}
             set -e
 
+            set +o pipefail
+            DUMP_HEAD=$(${gunzip} -c "$DUMP_TMP" 2>/dev/null | head -c 512)
+            set -o pipefail
+
+            case "$DUMP_HEAD" in
+              *"PostgreSQL database dump"*) DUMP_VALID=1 ;;
+              *) DUMP_VALID=0 ;;
+            esac
+
             if [ "$DUMP_RC" -ne 0 ]; then
               echo "  ERROR: pg_dump for ${pg.db} exited $DUMP_RC:"
               sed 's/^/    /' "$DUMP_ERR"
               rm -f "$DUMP_TMP"
               FAILED=$((FAILED + 1))
-            elif ! ${gunzip} -c "$DUMP_TMP" | grep -q "PostgreSQL database dump"; then
+            elif [ "$DUMP_VALID" -eq 0 ]; then
               echo "  ERROR: dump for ${pg.db} is empty or truncated, keeping previous copy"
               sed 's/^/    /' "$DUMP_ERR"
               rm -f "$DUMP_TMP"
@@ -627,9 +646,14 @@ in
         ${repoGuard}
 
         cleanup_stage() {
-          ${findmnt} -rn -o TARGET 2>/dev/null | grep "^${stageDir}/" | sort -r | while read -r M; do
-            ${umount} "$M" 2>/dev/null || true
-          done
+          local mounts M
+          mounts=$(${findmnt} -rn -o TARGET 2>/dev/null | sort -r || true)
+          while read -r M; do
+            [ -n "$M" ] || continue
+            case "$M" in
+              ${stageDir}/*) ${umount} "$M" 2>/dev/null || true ;;
+            esac
+          done <<< "$mounts"
           find "${stageDir}" -depth -type d -empty -delete 2>/dev/null || true
         }
         trap cleanup_stage EXIT
