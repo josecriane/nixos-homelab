@@ -1,5 +1,5 @@
 # Backup system using Restic + systemd timers
-# Stores backups on NAS at /mnt/nas1/backups/restic-repo
+# Repository lives on the NAS when storage.useNFS is set, otherwise on the node
 # Tiers: Critical (daily 03:00), Full (weekly Sun 04:00), Cleanup (weekly Sun 06:00)
 {
   config,
@@ -15,18 +15,123 @@ let
   restic = "${pkgs.restic}/bin/restic";
   gzip = "${pkgs.gzip}/bin/gzip";
   gunzip = "${pkgs.gzip}/bin/gunzip";
+  jq = "${pkgs.jq}/bin/jq";
+  sqlite = "${pkgs.sqlite}/bin/sqlite3";
   mountpoint = "${pkgs.util-linux}/bin/mountpoint";
+  findmnt = "${pkgs.util-linux}/bin/findmnt";
+  mount = "${pkgs.util-linux}/bin/mount";
+  umount = "${pkgs.util-linux}/bin/umount";
+  timeout = "${pkgs.coreutils}/bin/timeout";
+
+  useNFS = serverConfig.storage.useNFS or false;
+
+  nasMountPoint = "/mnt/nas1";
+  backupDir =
+    if useNFS then
+      "${nasMountPoint}/backups"
+    else
+      (serverConfig.backup.localPath or "/var/lib/backup/repo");
 
   # Backup paths
-  resticRepo = "/mnt/nas1/backups/restic-repo";
+  resticRepo = "${backupDir}/restic-repo";
   passwordFile = config.age.secrets.restic-password.path;
   dumpDir = "/var/lib/backup/db-dumps";
+  repoIdFile = "/var/lib/backup/repo-id";
   k3sStorage = "/var/lib/rancher/k3s/storage";
+
+  stageDir = "/run/backup-volumes";
+
+  backupDirIsBind =
+    useNFS
+    && lib.any (cfg: (cfg.enabled or false) && lib.elem "backups" (cfg.mediaPaths or [ ])) (
+      lib.attrValues (serverConfig.nas or { })
+    );
+
+  mountUnits = lib.optionals useNFS (
+    [ "mnt-nas1.mount" ] ++ lib.optional backupDirIsBind "mnt-nas1-backups.mount"
+  );
+
+  nasGuard = lib.optionalString useNFS ''
+    if ! ${mountpoint} -q ${nasMountPoint} 2>/dev/null; then
+      echo "ERROR: ${nasMountPoint} not mounted, aborting"
+      exit 1
+    fi
+    ${lib.optionalString backupDirIsBind ''
+      if ! ${mountpoint} -q ${backupDir} 2>/dev/null; then
+        echo "ERROR: ${backupDir} is not a mount point."
+        echo "The NAS bind mount is missing; writing here would target the wrong disk."
+        exit 1
+      fi
+    ''}
+  '';
 
   # Restic env
   resticEnv = ''
     export RESTIC_REPOSITORY="${resticRepo}"
     export RESTIC_PASSWORD_FILE="${passwordFile}"
+  '';
+
+  cacheDir = "/var/cache/restic";
+  resticServiceEnv = ''
+    ${resticEnv}
+    export RESTIC_CACHE_DIR="${cacheDir}"
+  '';
+
+  cacheServiceConfig = {
+    CacheDirectory = "restic";
+    CacheDirectoryMode = "0700";
+  };
+
+  repoGuard = ''
+    ${nasGuard}
+
+    if ! REPO_CONFIG=$(${timeout} 60 ${restic} cat config 2>&1); then
+      echo "ERROR: cannot open restic repository at ${resticRepo}:"
+      echo "$REPO_CONFIG" | sed 's/^/  /'
+      exit 1
+    fi
+
+    REPO_ID=$(printf '%s' "$REPO_CONFIG" | ${jq} -r '.id // empty')
+    if [ -z "$REPO_ID" ]; then
+      echo "ERROR: restic repository config carries no id"
+      exit 1
+    fi
+
+    if [ -f "${repoIdFile}" ]; then
+      EXPECTED_REPO_ID=$(cat "${repoIdFile}")
+      if [ "$REPO_ID" != "$EXPECTED_REPO_ID" ]; then
+        echo "ERROR: repository at ${resticRepo} is $REPO_ID, expected $EXPECTED_REPO_ID."
+        echo "The backup path most likely resolves to a different disk. Refusing to continue."
+        echo "If this change is intentional, update ${repoIdFile}."
+        exit 1
+      fi
+    else
+      printf '%s\n' "$REPO_ID" > "${repoIdFile}"
+      echo "Pinned repository id $REPO_ID"
+    fi
+  '';
+
+  pvcHostPathFn = ''
+    pvc_host_path() {
+      local ns="$1" pvc="$2" pv targets dir
+      pv=$(${kubectl} get pvc -n "$ns" "$pvc" -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)
+      [ -n "$pv" ] || return 1
+
+      if [ -b "/dev/longhorn/$pv" ]; then
+        targets=$(${findmnt} -n -o TARGET "/dev/longhorn/$pv" 2>/dev/null || true)
+        [ -n "$targets" ] || return 1
+        printf '%s\n' "$targets" | grep -m1 globalmount || printf '%s\n' "$targets" | head -1
+        return 0
+      fi
+
+      dir="${k3sStorage}/''${pv}_''${ns}_''${pvc}"
+      if [ -d "$dir" ]; then
+        printf '%s\n' "$dir"
+        return 0
+      fi
+
+      return 1
+    }
   '';
 
   # PostgreSQL instances to dump
@@ -63,14 +168,34 @@ let
 
   excludeFile = pkgs.writeText "backup-excludes" (builtins.concatStringsSep "\n" excludePatterns);
 
-  # Shared dump script (used by backup-db-dump service and as ExecStartPre in backup-critical)
+  skipVolumes = [
+    "immich/immich-ml-cache"
+    "monitoring/prometheus-"
+    "monitoring/alertmanager-"
+  ];
+
+  skipVolumesCase = builtins.concatStringsSep "|" (map (v: "${v}*") skipVolumes);
+
+  nodeStorageClasses = [
+    "longhorn"
+    "local-path"
+  ];
+
+  nodeStorageClassesCase = builtins.concatStringsSep "|" nodeStorageClasses;
+
+  # Shared dump script (used by backup-db-dump, backup-critical and backup-full)
   dumpScript = pkgs.writeShellScript "backup-db-dump" ''
-    set -e
+    set -euo pipefail
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
+    ${pvcHostPathFn}
+
+    FAILED=0
+
     echo "=== Database Dumps ==="
-    mkdir -p "${dumpDir}"
-    mkdir -p "${dumpDir}/k8s-secrets"
+    install -d -m 0700 /var/lib/backup
+    install -d -m 0700 "${dumpDir}"
+    install -d -m 0700 "${dumpDir}/k8s-secrets"
 
     # PostgreSQL dumps
     ${builtins.concatStringsSep "\n" (
@@ -78,52 +203,92 @@ let
         pg:
         let
           execTarget = if pg ? deploy then "deploy/${pg.deploy}" else pg.pod;
+          getTarget = if pg ? deploy then "deploy/${pg.deploy}" else "pod/${pg.pod}";
         in
         ''
           echo "Dumping ${pg.db} (${pg.ns})..."
-          if ${kubectl} get ${
-            if pg ? deploy then "deploy/${pg.deploy}" else "pod/${pg.pod}"
-          } -n ${pg.ns} &>/dev/null; then
+          if ${kubectl} get ${getTarget} -n ${pg.ns} >/dev/null 2>&1; then
+            DUMP_ERR=$(mktemp)
+            DUMP_TMP="${dumpDir}/${pg.db}.sql.gz.tmp"
+            set +e
             ${kubectl} exec -n ${pg.ns} ${execTarget} -- \
-              pg_dump -U ${pg.user} -d ${pg.db} 2>/dev/null | ${gzip} > "${dumpDir}/${pg.db}.sql.gz"
-            echo "  ${pg.db}: $(du -h "${dumpDir}/${pg.db}.sql.gz" | cut -f1)"
+              sh -c 'export PGPASSWORD="''${POSTGRES_PASSWORD:-$(cat "''${POSTGRES_PASSWORD_FILE:-/dev/null}" 2>/dev/null)}"; exec pg_dump -U ${pg.user} -d ${pg.db}' \
+              2>"$DUMP_ERR" | ${gzip} > "$DUMP_TMP"
+            DUMP_RC=''${PIPESTATUS[0]}
+            set -e
+
+            if [ "$DUMP_RC" -ne 0 ]; then
+              echo "  ERROR: pg_dump for ${pg.db} exited $DUMP_RC:"
+              sed 's/^/    /' "$DUMP_ERR"
+              rm -f "$DUMP_TMP"
+              FAILED=$((FAILED + 1))
+            elif ! ${gunzip} -c "$DUMP_TMP" | grep -q "PostgreSQL database dump"; then
+              echo "  ERROR: dump for ${pg.db} is empty or truncated, keeping previous copy"
+              sed 's/^/    /' "$DUMP_ERR"
+              rm -f "$DUMP_TMP"
+              FAILED=$((FAILED + 1))
+            else
+              mv "$DUMP_TMP" "${dumpDir}/${pg.db}.sql.gz"
+              chmod 0600 "${dumpDir}/${pg.db}.sql.gz"
+              echo "  ${pg.db}: $(du -h "${dumpDir}/${pg.db}.sql.gz" | cut -f1)"
+            fi
+            rm -f "$DUMP_ERR"
           else
-            echo "  WARN: ${execTarget} not found in ${pg.ns}, skipping"
+            echo "  ${execTarget} not present in ${pg.ns}, skipping"
           fi
         ''
       ) pgDumps
     )}
 
-    # Vaultwarden SQLite backup (copy the raw data directory)
-    echo "Backing up Vaultwarden SQLite..."
-    VAULTWARDEN_PVC=$(ls -d ${k3sStorage}/pvc-*_vaultwarden_* 2>/dev/null | head -1)
-    if [ -n "$VAULTWARDEN_PVC" ] && [ -d "$VAULTWARDEN_PVC" ]; then
-      mkdir -p "${dumpDir}/vaultwarden"
-      cp "$VAULTWARDEN_PVC/db.sqlite3" "${dumpDir}/vaultwarden/" 2>/dev/null || true
-      cp "$VAULTWARDEN_PVC/db.sqlite3-wal" "${dumpDir}/vaultwarden/" 2>/dev/null || true
-      cp "$VAULTWARDEN_PVC/db.sqlite3-shm" "${dumpDir}/vaultwarden/" 2>/dev/null || true
-      if [ -d "$VAULTWARDEN_PVC/attachments" ]; then
-        cp -r "$VAULTWARDEN_PVC/attachments" "${dumpDir}/vaultwarden/" 2>/dev/null || true
+    # Vaultwarden SQLite backup
+    echo "Backing up Vaultwarden..."
+    if ${kubectl} get pvc -n vaultwarden vaultwarden-data-vaultwarden-0 >/dev/null 2>&1; then
+      VW_DIR=$(pvc_host_path vaultwarden vaultwarden-data-vaultwarden-0 || true)
+      if [ -n "$VW_DIR" ] && [ -f "$VW_DIR/db.sqlite3" ]; then
+        rm -rf "${dumpDir}/vaultwarden"
+        install -d -m 0700 "${dumpDir}/vaultwarden"
+        ${sqlite} "$VW_DIR/db.sqlite3" ".backup '${dumpDir}/vaultwarden/db.sqlite3'"
+        for EXTRA in rsa_key.pem rsa_key.pub.pem config.json; do
+          if [ -f "$VW_DIR/$EXTRA" ]; then
+            cp "$VW_DIR/$EXTRA" "${dumpDir}/vaultwarden/"
+          fi
+        done
+        for EXTRA in attachments sends; do
+          if [ -d "$VW_DIR/$EXTRA" ]; then
+            cp -r "$VW_DIR/$EXTRA" "${dumpDir}/vaultwarden/"
+          fi
+        done
+        chmod -R go-rwx "${dumpDir}/vaultwarden"
+        echo "  Vaultwarden: $(du -sh "${dumpDir}/vaultwarden" | cut -f1) (from $VW_DIR)"
+      else
+        echo "  ERROR: Vaultwarden volume not readable on this node, nothing backed up"
+        FAILED=$((FAILED + 1))
       fi
-      echo "  Vaultwarden: $(du -sh "${dumpDir}/vaultwarden" | cut -f1)"
     else
-      echo "  WARN: Vaultwarden PVC not found, skipping"
+      echo "  vaultwarden PVC not present, skipping"
     fi
 
     # K8s Secrets backup (all namespaces)
     echo "Backing up K8s Secrets..."
-    for NS in authentik cert-manager extra homer immich media monitoring nextcloud syncthing traefik-system vaultwarden; do
-      if ${kubectl} get namespace "$NS" &>/dev/null; then
-        ${kubectl} get secrets -n "$NS" -o yaml > "${dumpDir}/k8s-secrets/$NS-secrets.yaml" 2>/dev/null || true
+    for NS in $(${kubectl} get namespace -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
+      if ! ${kubectl} get secrets -n "$NS" -o yaml > "${dumpDir}/k8s-secrets/$NS-secrets.yaml"; then
+        echo "  ERROR: could not dump secrets for $NS"
+        rm -f "${dumpDir}/k8s-secrets/$NS-secrets.yaml"
+        FAILED=$((FAILED + 1))
       fi
     done
 
     # Credential secrets backup (all namespaces, labeled)
     ${kubectl} get secrets --all-namespaces -l k8s/credential=true -o yaml \
-      > "${dumpDir}/k8s-secrets/all-credentials.yaml" 2>/dev/null || true
+      > "${dumpDir}/k8s-secrets/all-credentials.yaml"
+    chmod -R go-rwx "${dumpDir}/k8s-secrets"
     echo "  K8s Secrets: $(du -sh "${dumpDir}/k8s-secrets" | cut -f1)"
 
     echo ""
+    if [ "$FAILED" -gt 0 ]; then
+      echo "Dumps completed with $FAILED failure(s): $(du -sh "${dumpDir}" | cut -f1) total"
+      exit 1
+    fi
     echo "All dumps completed: $(du -sh "${dumpDir}" | cut -f1) total"
   '';
 
@@ -136,16 +301,33 @@ in
       echo "=== Backup System Status ==="
       echo ""
 
-      # Check NAS mount
-      if ${mountpoint} -q /mnt/nas1 2>/dev/null; then
-        echo "NAS mount: OK (/mnt/nas1)"
-      else
-        echo "NAS mount: NOT MOUNTED"
-      fi
+      echo "Repository location: ${resticRepo}"
+      ${
+        if useNFS then
+          ''
+            if ${mountpoint} -q ${nasMountPoint} 2>/dev/null; then
+              echo "NAS mount: OK (${nasMountPoint})"
+            else
+              echo "NAS mount: NOT MOUNTED"
+            fi
+            ${lib.optionalString backupDirIsBind ''
+              if ${mountpoint} -q ${backupDir} 2>/dev/null; then
+                echo "Backup mount: OK (${backupDir})"
+              else
+                echo "Backup mount: NOT MOUNTED (${backupDir}) - backups will refuse to run"
+              fi
+            ''}
+          ''
+        else
+          ''echo "Storage: local (no NAS configured)"''
+      }
 
       # Check repo
       if [ -d "${resticRepo}" ]; then
         echo "Restic repo: exists"
+        if [ -f "${repoIdFile}" ]; then
+          echo "Pinned repo id: $(cat "${repoIdFile}")"
+        fi
         ${restic} stats --mode raw-data 2>/dev/null && true
       else
         echo "Restic repo: NOT FOUND"
@@ -179,8 +361,6 @@ in
 
       case "$OPTION" in
         1)
-          echo "Running DB dumps..."
-          sudo systemctl start backup-db-dump.service
           echo "Running critical backup..."
           sudo systemctl start backup-critical.service
           ;;
@@ -189,8 +369,6 @@ in
           sudo systemctl start backup-full.service
           ;;
         3)
-          echo "Running DB dumps..."
-          sudo systemctl start backup-db-dump.service
           echo "Running critical backup..."
           sudo systemctl start backup-critical.service
           echo "Running full backup..."
@@ -239,13 +417,17 @@ in
       echo "For DB dumps (PostgreSQL):"
       echo "  ${gunzip} -c $RESTORE_DIR/db-dumps/<service>.sql.gz | kubectl exec -i -n <ns> <pod> -- psql -U <user> -d <db>"
       echo ""
-      echo "For Vaultwarden (SQLite):"
+      echo "For Vaultwarden (SQLite), with VW the claim's directory on the node"
+      echo "(CSI: findmnt /dev/<driver>/<pv>; local-path: ${k3sStorage}/<pv>_vaultwarden_*):"
       echo "  kubectl scale statefulset vaultwarden -n vaultwarden --replicas=0"
-      echo "  cp $RESTORE_DIR/vaultwarden/* /var/lib/rancher/k3s/storage/<vaultwarden-pvc>/"
+      echo "  rm -f \$VW/db.sqlite3-wal \$VW/db.sqlite3-shm"
+      echo "  cp -r $RESTORE_DIR/db-dumps/vaultwarden/* \$VW/"
       echo "  kubectl scale statefulset vaultwarden -n vaultwarden --replicas=1"
       echo ""
+      echo "For full-backup volumes, files sit under $RESTORE_DIR/backup-volumes/<namespace>/<pvc>/"
+      echo ""
       echo "For K8s Secrets:"
-      echo "  kubectl apply -f $RESTORE_DIR/k8s-secrets/"
+      echo "  kubectl apply -f $RESTORE_DIR/db-dumps/k8s-secrets/"
       echo ""
       echo "Remember to clean up: rm -rf $RESTORE_DIR"
     '')
@@ -257,18 +439,15 @@ in
 
   systemd.services.backup-setup = {
     description = "Initialize Restic backup repository";
-    after = [
-      "k3s-extras.target"
-    ]
-    ++ lib.optionals (serverConfig.storage.useNFS or false) [ "mnt-nas1.mount" ];
-    wants = lib.optionals (serverConfig.storage.useNFS or false) [ "mnt-nas1.mount" ];
+    after = [ "k3s-extras.target" ] ++ mountUnits;
+    wants = mountUnits;
     wantedBy = [ "multi-user.target" ];
 
-    serviceConfig = {
+    serviceConfig = cacheServiceConfig // {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "backup-setup" ''
-        set -e
+        set -euo pipefail
         MARKER_FILE="/var/lib/backup-setup-done"
 
         if [ -f "$MARKER_FILE" ]; then
@@ -279,54 +458,80 @@ in
         echo "Initializing backup system..."
 
         # Create directories
-        mkdir -p /var/lib/backup
-        mkdir -p "${dumpDir}"
+        install -d -m 0700 /var/lib/backup
+        install -d -m 0700 "${dumpDir}"
 
-        # Wait for NAS mount (try mounting if not available)
-        echo "Waiting for NAS mount..."
-        for i in $(seq 1 30); do
-          if ${mountpoint} -q /mnt/nas1 2>/dev/null; then
-            echo "NAS mounted"
-            break
+        ${lib.optionalString useNFS ''
+          # Wait for NAS mount (try mounting if not available)
+          echo "Waiting for NAS mount..."
+          for i in $(seq 1 30); do
+            if ${mountpoint} -q ${nasMountPoint} 2>/dev/null; then
+              echo "NAS mounted"
+              break
+            fi
+            # Try to trigger mount if not yet mounted
+            if [ "$i" -eq 1 ] || [ "$((i % 5))" -eq 0 ]; then
+              ${mount} ${nasMountPoint} 2>/dev/null || true
+            fi
+            echo "Waiting for ${nasMountPoint}... ($i/30)"
+            sleep 10
+          done
+
+          if ! ${mountpoint} -q ${nasMountPoint} 2>/dev/null; then
+            echo "ERROR: NAS not mounted at ${nasMountPoint}, cannot initialize backup"
+            exit 1
           fi
-          # Try to trigger mount if not yet mounted
-          if [ "$i" -eq 1 ] || [ "$((i % 5))" -eq 0 ]; then
-            ${pkgs.util-linux}/bin/mount /mnt/nas1 2>/dev/null || true
+        ''}
+        ${lib.optionalString backupDirIsBind ''
+          for i in $(seq 1 30); do
+            if ${mountpoint} -q ${backupDir} 2>/dev/null; then
+              break
+            fi
+            if [ "$i" -eq 1 ] || [ "$((i % 5))" -eq 0 ]; then
+              ${mount} ${backupDir} 2>/dev/null || true
+            fi
+            echo "Waiting for ${backupDir}... ($i/30)"
+            sleep 10
+          done
+
+          if ! ${mountpoint} -q ${backupDir} 2>/dev/null; then
+            echo "ERROR: ${backupDir} is not mounted. Without the NAS bind mount this"
+            echo "path resolves to a different disk, so we will not touch it."
+            exit 1
           fi
-          echo "Waiting for /mnt/nas1... ($i/30)"
-          sleep 10
-        done
+        ''}
 
-        if ! ${mountpoint} -q /mnt/nas1 2>/dev/null; then
-          echo "ERROR: NAS not mounted at /mnt/nas1, cannot initialize backup"
-          exit 1
-        fi
+        ${resticServiceEnv}
 
-        # Create backup directory on NAS
-        mkdir -p "${resticRepo}"
-
-        # Initialize Restic repo if needed. NFS stale handles can hang
-        # restic indefinitely, so we timebox the check and treat NAS I/O
-        # errors as non-fatal (backups will retry on the next run).
-        ${resticEnv}
-        if ${pkgs.coreutils}/bin/timeout 30 ${restic} cat config &>/dev/null; then
+        # Initialize Restic repo if needed
+        if ${timeout} 60 ${restic} cat config >/dev/null 2>&1; then
           echo "Restic repository already exists"
-        elif ${pkgs.coreutils}/bin/timeout 10 test -f "${resticRepo}/config"; then
-          echo "Restic repo exists but password mismatch or unreadable, re-creating..."
-          rm -rf "${resticRepo}" 2>/dev/null || true
-          mkdir -p "${resticRepo}"
-          if ! ${pkgs.coreutils}/bin/timeout 60 ${restic} init; then
-            echo "WARN: restic init failed (NAS issue?), skipping marker creation"
-            exit 0
-          fi
-          echo "Restic repository re-initialized at ${resticRepo}"
+        elif ${timeout} 10 test -e "${resticRepo}/config"; then
+          echo "ERROR: ${resticRepo} holds a repository we cannot open."
+          echo "Check that ${backupDir} is the intended disk and that the"
+          echo "restic-password secret matches this repository. Not touching it."
+          exit 1
         else
           echo "Initializing Restic repository..."
-          if ! ${pkgs.coreutils}/bin/timeout 60 ${restic} init; then
+          mkdir -p "${resticRepo}"
+          if ! ${timeout} 120 ${restic} init; then
             echo "WARN: restic init failed (NAS issue?), skipping marker creation"
-            exit 0
+            exit 1
           fi
           echo "Restic repository initialized at ${resticRepo}"
+        fi
+
+        REPO_ID=$(${timeout} 60 ${restic} cat config | ${jq} -r '.id // empty')
+        if [ -z "$REPO_ID" ]; then
+          echo "ERROR: could not read repository id"
+          exit 1
+        fi
+        if [ ! -f "${repoIdFile}" ]; then
+          printf '%s\n' "$REPO_ID" > "${repoIdFile}"
+          echo "Pinned repository id $REPO_ID"
+        elif [ "$REPO_ID" != "$(cat "${repoIdFile}")" ]; then
+          echo "ERROR: repository id $REPO_ID does not match pinned $(cat "${repoIdFile}")"
+          exit 1
         fi
 
         touch "$MARKER_FILE"
@@ -350,36 +555,28 @@ in
   # Critical backup: Vaultwarden + DB dumps + K8s Secrets (daily 03:00)
   systemd.services.backup-critical = {
     description = "Critical backup (Vaultwarden + DB dumps + Secrets)";
-    after = [ "backup-setup.service" ];
+    after = [ "backup-setup.service" ] ++ mountUnits;
     requires = [ "backup-setup.service" ];
+    wants = mountUnits;
 
-    serviceConfig = {
+    serviceConfig = cacheServiceConfig // {
       Type = "oneshot";
-      ExecStartPre = dumpScript;
       ExecStart = pkgs.writeShellScript "backup-critical" ''
-        set -e
-        ${resticEnv}
+        set -euo pipefail
+        ${resticServiceEnv}
 
         echo "=== Critical Backup ==="
+        ${repoGuard}
 
-        # Verify NAS is mounted
-        if ! ${mountpoint} -q /mnt/nas1 2>/dev/null; then
-          echo "ERROR: NAS not mounted, skipping backup"
-          exit 1
-        fi
+        DUMP_RC=0
+        ${dumpScript} || DUMP_RC=$?
 
-        # Find Vaultwarden PVC
-        VAULTWARDEN_PVC=$(ls -d ${k3sStorage}/pvc-*_vaultwarden_* 2>/dev/null | head -1)
-        BACKUP_PATHS="${dumpDir}"
-        if [ -n "$VAULTWARDEN_PVC" ] && [ -d "$VAULTWARDEN_PVC" ]; then
-          BACKUP_PATHS="$BACKUP_PATHS $VAULTWARDEN_PVC"
-        fi
-
-        echo "Backing up: $BACKUP_PATHS"
+        echo ""
+        echo "Backing up: ${dumpDir}"
         ${restic} backup \
           --tag critical \
           --tag daily \
-          $BACKUP_PATHS
+          ${dumpDir}
 
         # Cleanup sensitive dumps after backup
         rm -rf "${dumpDir}/k8s-secrets"
@@ -387,6 +584,12 @@ in
         echo ""
         echo "Critical backup completed"
         ${restic} snapshots --latest 3 --tag critical
+
+        if [ "$DUMP_RC" -ne 0 ]; then
+          echo ""
+          echo "ERROR: the snapshot was taken, but some dumps failed (see above)."
+          exit 1
+        fi
       '';
     };
   };
@@ -401,39 +604,96 @@ in
     };
   };
 
-  # Full backup: all K3s PVC storage (weekly Sunday 04:00)
+  # Full backup: all node-local PVC data (weekly Sunday 04:00)
   systemd.services.backup-full = {
     description = "Full backup (all PVC data)";
-    after = [ "backup-setup.service" ];
+    after = [ "backup-setup.service" ] ++ mountUnits;
     requires = [ "backup-setup.service" ];
+    wants = mountUnits;
 
-    serviceConfig = {
+    serviceConfig = cacheServiceConfig // {
       Type = "oneshot";
       ExecStart = pkgs.writeShellScript "backup-full" ''
-        set -e
-        ${resticEnv}
+        set -euo pipefail
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        ${resticServiceEnv}
+        ${pvcHostPathFn}
 
         echo "=== Full Backup ==="
+        ${repoGuard}
 
-        # Verify NAS is mounted
-        if ! ${mountpoint} -q /mnt/nas1 2>/dev/null; then
-          echo "ERROR: NAS not mounted, skipping backup"
+        cleanup_stage() {
+          ${findmnt} -rn -o TARGET 2>/dev/null | grep "^${stageDir}/" | sort -r | while read -r M; do
+            ${umount} "$M" 2>/dev/null || true
+          done
+          find "${stageDir}" -depth -type d -empty -delete 2>/dev/null || true
+        }
+        trap cleanup_stage EXIT
+        trap 'cleanup_stage; exit 1' INT TERM
+        cleanup_stage
+        mkdir -p "${stageDir}"
+
+        DUMP_RC=0
+        ${dumpScript} || DUMP_RC=$?
+
+        echo ""
+        echo "Staging node-local volumes readable on this node..."
+        PVC_LIST=$(${kubectl} get pvc -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.storageClassName}{"\n"}{end}')
+        CANDIDATES=0
+        STAGED=0
+        MISSING=""
+
+        while read -r NS PVC SC; do
+          [ -n "''${NS:-}" ] || continue
+          case "''${SC:-}" in
+            ${nodeStorageClassesCase}) ;;
+            *) continue ;;
+          esac
+
+          case "$NS/$PVC" in
+            ${skipVolumesCase})
+              echo "  skip (excluded by policy): $NS/$PVC"
+              continue
+              ;;
+          esac
+
+          CANDIDATES=$((CANDIDATES + 1))
+
+          SRC=$(pvc_host_path "$NS" "$PVC" || true)
+          if [ -z "$SRC" ]; then
+            MISSING="$MISSING $NS/$PVC"
+            continue
+          fi
+
+          DEST="${stageDir}/$NS/$PVC"
+          mkdir -p "$DEST"
+          ${mount} --bind "$SRC" "$DEST"
+          ${mount} -o remount,bind,ro "$DEST"
+          STAGED=$((STAGED + 1))
+          echo "  staged $NS/$PVC"
+        done <<< "$PVC_LIST"
+
+        if [ -n "$MISSING" ]; then
+          echo ""
+          echo "NOT backed up (volume detached, or attached to another node):"
+          for V in $MISSING; do echo "  $V"; done
+        fi
+
+        if [ "$STAGED" -eq 0 ] && [ "$CANDIDATES" -gt 0 ]; then
+          echo "ERROR: none of the $CANDIDATES node-local volume(s) could be staged,"
+          echo "refusing to take a full backup that silently contains no volume data"
           exit 1
         fi
 
-        if [ ! -d "${k3sStorage}" ]; then
-          echo "ERROR: K3s storage directory not found at ${k3sStorage}"
-          exit 1
-        fi
-
-        echo "Backing up: ${k3sStorage}"
+        echo ""
+        echo "Backing up $STAGED volume(s) plus ${dumpDir}"
         echo "Excluding: media, transcodes, downloads"
 
         ${restic} backup \
           --tag full \
           --tag weekly \
           --exclude-file=${excludeFile} \
-          ${k3sStorage} \
+          "${stageDir}" \
           ${dumpDir}
 
         # Cleanup sensitive dumps after backup
@@ -442,6 +702,12 @@ in
         echo ""
         echo "Full backup completed"
         ${restic} snapshots --latest 3 --tag full
+
+        if [ "$DUMP_RC" -ne 0 ]; then
+          echo ""
+          echo "ERROR: the snapshot was taken, but some dumps failed (see above)."
+          exit 1
+        fi
       '';
     };
   };
@@ -459,22 +725,18 @@ in
   # Cleanup: apply retention policy (weekly Sunday 06:00)
   systemd.services.backup-cleanup = {
     description = "Backup cleanup and retention";
-    after = [ "backup-setup.service" ];
+    after = [ "backup-setup.service" ] ++ mountUnits;
     requires = [ "backup-setup.service" ];
+    wants = mountUnits;
 
-    serviceConfig = {
+    serviceConfig = cacheServiceConfig // {
       Type = "oneshot";
       ExecStart = pkgs.writeShellScript "backup-cleanup" ''
-        set -e
-        ${resticEnv}
+        set -euo pipefail
+        ${resticServiceEnv}
 
         echo "=== Backup Cleanup ==="
-
-        # Verify NAS is mounted
-        if ! ${mountpoint} -q /mnt/nas1 2>/dev/null; then
-          echo "ERROR: NAS not mounted, skipping cleanup"
-          exit 1
-        fi
+        ${repoGuard}
 
         echo "Applying retention policy..."
         ${restic} forget \

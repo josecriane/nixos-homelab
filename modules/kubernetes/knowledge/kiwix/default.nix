@@ -83,22 +83,23 @@ lib.recursiveUpdate release {
         fi
 
         DOWNLOADED=false
+        FAILED_ZIMS=""
 
-        download_latest_zim() {
+        fetch_latest_zim() {
           local category="$1"
           local pattern="$2"
 
           echo "Checking $category/$pattern..."
 
           local listing
-          listing=$($CURL -s "https://download.kiwix.org/zim/$category/")
+          listing=$($CURL -sL "https://download.kiwix.org/zim/$category/" || true)
           if [ -z "$listing" ]; then
             echo "  ERROR: Could not fetch listing for $category"
             return 1
           fi
 
           local latest
-          latest=$(echo "$listing" | grep -oP "''${pattern}_[0-9-]+\.zim(?=\")" | sort -V | tail -1)
+          latest=$(printf '%s' "$listing" | grep -oP "''${pattern}_[0-9-]+\.zim" | sort -uV | tail -1 || true)
           if [ -z "$latest" ]; then
             echo "  ERROR: No ZIM found matching $pattern"
             return 1
@@ -128,6 +129,12 @@ lib.recursiveUpdate release {
           else
             echo "  ERROR: Download failed for $latest"
             return 1
+          fi
+        }
+
+        download_latest_zim() {
+          if ! fetch_latest_zim "$1" "$2"; then
+            FAILED_ZIMS="$FAILED_ZIMS $1/$2"
           fi
         }
 
@@ -195,6 +202,12 @@ lib.recursiveUpdate release {
           echo "kiwix-serve restarted"
         else
           echo "No new ZIM files, no restart needed"
+        fi
+
+        if [ -n "$FAILED_ZIMS" ]; then
+          echo "Kiwix update finished with failures:"
+          for Z in $FAILED_ZIMS; do echo "  $Z"; done
+          exit 1
         fi
 
         echo "Kiwix update complete"

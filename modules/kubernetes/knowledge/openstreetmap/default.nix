@@ -15,6 +15,8 @@ let
   k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "openstreetmap";
 
+  awk = "${pkgs.gawk}/bin/awk";
+
   cloudNas = lib.findFirst (
     cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "openstreetmap"
   ) null (lib.attrValues (serverConfig.nas or { }));
@@ -183,35 +185,58 @@ lib.recursiveUpdate release {
         fi
 
         BUILDS_URL="https://build.protomaps.com"
-        LATEST=$($CURL -sL "$BUILDS_URL/" | grep -oP '[0-9]{8}\.pmtiles' | sort -V | tail -1)
+
+        LATEST=""
+        REMOTE_SIZE=""
+        for BACK in $(seq 0 10); do
+          CANDIDATE="$(date -u -d "$BACK days ago" +%Y%m%d).pmtiles"
+          SIZE=$($CURL -sIL "$BUILDS_URL/$CANDIDATE" \
+            | grep -i '^content-length:' | tail -1 | ${awk} '{print $2}' | tr -d '\r')
+          if [ -n "$SIZE" ] && [ "$SIZE" -gt 0 ] 2>/dev/null; then
+            LATEST="$CANDIDATE"
+            REMOTE_SIZE="$SIZE"
+            break
+          fi
+          echo "No build published for $CANDIDATE"
+        done
+
         if [ -z "$LATEST" ]; then
-          LATEST="$(date +%Y%m%d).pmtiles"
+          echo "ERROR: no PMTiles build found in the last 10 days at $BUILDS_URL"
+          exit 1
         fi
-        echo "Latest build: $LATEST"
+        echo "Latest build: $LATEST ($REMOTE_SIZE bytes)"
 
         if [ -f "$DATA_DIR/world.pmtiles" ]; then
           CURRENT_SIZE=$(stat -c%s "$DATA_DIR/world.pmtiles" 2>/dev/null || echo "0")
-          REMOTE_SIZE=$($CURL -sI "$BUILDS_URL/$LATEST" | grep -i content-length | awk '{print $2}' | tr -d '\r')
-          if [ -n "$REMOTE_SIZE" ] && [ "$CURRENT_SIZE" = "$REMOTE_SIZE" ]; then
+          if [ "$CURRENT_SIZE" = "$REMOTE_SIZE" ]; then
             echo "Already up to date"
             exit 0
           fi
         fi
 
-        echo "Downloading world PMTiles (~120 GB)..."
+        echo "Downloading world PMTiles (~130 GB)..."
+        RC=0
         ${pkgs.aria2}/bin/aria2c \
           -x 8 -s 8 -k 50M --continue=true \
           -d "$DATA_DIR" -o "world.pmtiles.tmp" \
-          "$BUILDS_URL/$LATEST"
+          "$BUILDS_URL/$LATEST" || RC=$?
 
-        if [ $? -eq 0 ] && [ -f "$DATA_DIR/world.pmtiles.tmp" ]; then
-          mv "$DATA_DIR/world.pmtiles.tmp" "$DATA_DIR/world.pmtiles"
-          $KUBECTL rollout restart deployment/openstreetmap -n ${ns}
-          $KUBECTL rollout status deployment/openstreetmap -n ${ns} --timeout=120s || true
-        else
+        if [ "$RC" -ne 0 ] || [ ! -f "$DATA_DIR/world.pmtiles.tmp" ]; then
+          echo "ERROR: download failed (aria2c exit $RC)"
           rm -f "$DATA_DIR/world.pmtiles.tmp"
           exit 1
         fi
+
+        GOT_SIZE=$(stat -c%s "$DATA_DIR/world.pmtiles.tmp")
+        if [ "$GOT_SIZE" != "$REMOTE_SIZE" ]; then
+          echo "ERROR: downloaded $GOT_SIZE bytes, expected $REMOTE_SIZE, discarding"
+          rm -f "$DATA_DIR/world.pmtiles.tmp"
+          exit 1
+        fi
+
+        mv "$DATA_DIR/world.pmtiles.tmp" "$DATA_DIR/world.pmtiles"
+        $KUBECTL rollout restart deployment/openstreetmap -n ${ns}
+        $KUBECTL rollout status deployment/openstreetmap -n ${ns} --timeout=120s || true
       '';
     };
   };
