@@ -146,7 +146,7 @@ in
             ExecStart = pkgs.writeShellScript "switchboard-image-import" ''
               set -e
               for i in $(seq 1 60); do
-                [ -S /run/k3s/containerd/containerd.sock ] && break
+                ${pkgs.k3s}/bin/k3s ctr version >/dev/null 2>&1 && break
                 sleep 2
               done
               echo "Importing Switchboard image..."
