@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   serverConfig,
   ...
@@ -9,14 +10,14 @@
 # nfs-storage-cloud.nix. NAS mounts + nfs-heal come from upstream nfs-mounts.
 
 let
-  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled or false) (serverConfig.nas or { });
+  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled or false) config.homelab.nas;
   mediaNas = lib.findFirst (
     cfg: (cfg.role or "all") == "media" || (cfg.role or "all") == "all"
   ) null (lib.attrValues enabledNas);
 
   secondaryNasList = lib.filter (
     cfg: (cfg.enabled or false) && (cfg.mediaPaths or [ ]) != [ ] && cfg != mediaNas
-  ) (lib.attrValues (serverConfig.nas or { }));
+  ) (lib.attrValues config.homelab.nas);
 
   nasMountPoint = "/mnt/nas1";
   pathToMountUnit =

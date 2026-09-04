@@ -1,15 +1,14 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   secretsPath,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "vaultwarden";
   markerFile = "/var/lib/vaultwarden-admin-setup-done";
   credSecretName = "vaultwarden-admin-credentials";

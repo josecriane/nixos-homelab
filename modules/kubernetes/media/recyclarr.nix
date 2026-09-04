@@ -7,16 +7,15 @@
 # read live from each pod's /config/config.xml so recyclarr never drifts from
 # what the running app actually uses.
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
 
   # Per-instance recyclarr config fragments.

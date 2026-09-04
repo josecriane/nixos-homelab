@@ -1,9 +1,9 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   secretsPath,
   ...
 }:
@@ -14,11 +14,10 @@
 # stored in the marker, so re-running only happens when users/groups change.
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "authentik";
   markerFile = "/var/lib/authentik-bootstrap-users-done";
 
-  users = serverConfig.authentik.bootstrapUsers or { };
+  users = config.homelab.authentik.bootstrapUsers;
 
   userList = lib.mapAttrsToList (username: cfg: {
     inherit username;

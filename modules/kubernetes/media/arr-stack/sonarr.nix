@@ -1,20 +1,13 @@
 {
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
-}:
+}@args:
 
 let
-  helpers = import ./lib.nix {
-    inherit
-      lib
-      pkgs
-      serverConfig
-      nixos-k8s
-      ;
-  };
+  helpers = import ./lib.nix args;
 in
 helpers.mkArrRelease {
   name = "sonarr";

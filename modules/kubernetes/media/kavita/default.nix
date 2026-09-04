@@ -3,15 +3,14 @@
 # configuration (admin user, libraries, OIDC via /api/Settings) runs in a
 # separate systemd service so Helm reconciliation stays idempotent.
 {
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   configMarkerFile = "/var/lib/kavita-config-setup-done";
 

@@ -3,14 +3,13 @@
 # this module as plain YAML (values.yaml). Common tokens (__TIMEZONE__,
 # __PUID__, __PGID__) are auto-substituted by createHelmRelease.
 {
+  k8s,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
 in
 k8s.createHelmRelease {
   name = "flaresolverr";

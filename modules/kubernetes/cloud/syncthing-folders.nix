@@ -5,19 +5,18 @@
 # canonical path /var/syncthing/data/<folder-id>. Idempotent: folders already
 # under that prefix are skipped.
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "syncthing";
-  puid = toString (serverConfig.puid or 1000);
-  pgid = toString (serverConfig.pgid or 1000);
+  puid = toString (serverConfig.puid);
+  pgid = toString (serverConfig.pgid);
 in
 {
   systemd.services.syncthing-folders-reconcile = {

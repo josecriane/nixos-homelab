@@ -11,16 +11,15 @@
 # calling the Jellyseerr REST API. A timer re-runs it periodically so
 # desyncs self-heal.
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
 in
 {

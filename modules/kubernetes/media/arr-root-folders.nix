@@ -1,14 +1,11 @@
 {
-  config,
+  k8s,
   lib,
   pkgs,
-  serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/arr-root-folders-setup-done";
   curl = "curl";

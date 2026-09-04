@@ -3,15 +3,14 @@
 # this module as plain YAML (values.yaml); tokens like __TIMEZONE__, __PUID__,
 # __PGID__ are substituted from config at build time.
 {
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
 
   release = k8s.createHelmRelease {
     name = "bookshelf";

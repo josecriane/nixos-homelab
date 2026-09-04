@@ -1,7 +1,7 @@
 {
   # Cluster nodes (keyed by hostname)
   nodes = {
-    my-server = {
+    server1 = {
       ip = "192.168.1.100";
       role = "server";
       bootstrap = true;

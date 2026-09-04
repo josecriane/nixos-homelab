@@ -4,20 +4,20 @@
 # directly to createHelmRelease (serialized to JSON, converted to YAML at
 # deploy time via yq). No template file, no token substitution.
 {
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
+  ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
 
-  puidInt = serverConfig.puid or 1000;
-  pgidInt = serverConfig.pgid or 1000;
+  puidInt = serverConfig.puid;
+  pgidInt = serverConfig.pgid;
   puid = toString puidInt;
   pgid = toString pgidInt;
-  timezone = serverConfig.timezone or "UTC";
+  timezone = serverConfig.timezone;
 
   initApiKeyScriptRaw = builtins.readFile ./init-api-key.sh;
   initApiKeyScript =

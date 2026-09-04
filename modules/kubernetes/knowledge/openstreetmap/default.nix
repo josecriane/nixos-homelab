@@ -4,22 +4,22 @@
 # Base assets (fonts, sprites, JS libs) are seeded once on first boot and
 # refreshed by a monthly timer that pulls the latest Protomaps world build.
 {
+  config,
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "openstreetmap";
 
   awk = "${pkgs.gawk}/bin/awk";
 
   cloudNas = lib.findFirst (
     cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "openstreetmap"
-  ) null (lib.attrValues (serverConfig.nas or { }));
+  ) null (lib.attrValues config.homelab.nas);
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.openstreetmap}" else null;
 

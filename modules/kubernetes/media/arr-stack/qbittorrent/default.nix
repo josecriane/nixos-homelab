@@ -5,15 +5,14 @@
 # Post-install password configuration runs in a separate systemd service
 # (see ./password.nix) to keep the Helm release reconciliation idempotent.
 {
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
 
   release = k8s.createHelmRelease {
     name = "qbittorrent";

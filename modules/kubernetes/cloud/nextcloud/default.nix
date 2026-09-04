@@ -1,15 +1,14 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
   nodeConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "nextcloud";
   markerFile = "/var/lib/nextcloud-setup-done";
   ipParts = lib.splitString "." nodeConfig.ip;
@@ -18,7 +17,7 @@ let
   # Find NAS with cloudPaths.nextcloud for PV fallback creation
   cloudNas = lib.findFirst (
     cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "nextcloud"
-  ) null (lib.attrValues (serverConfig.nas or { }));
+  ) null (lib.attrValues config.homelab.nas);
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.nextcloud}" else null;
 in

@@ -1,19 +1,18 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   secretsPath,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/bazarr-config-setup-done";
   curl = "curl";
-  opensubtitlesUsername = serverConfig.opensubtitles.username or "";
+  opensubtitlesUsername = config.homelab.opensubtitles.username;
   migratorPodYaml = ./_migrator-pod.yaml;
 in
 {

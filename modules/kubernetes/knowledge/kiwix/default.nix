@@ -3,20 +3,20 @@
 # service runs on the host and rollout-restarts the Helm-managed Deployment
 # whenever fresh ZIM files land on /mnt/nas2/kiwix.
 {
+  config,
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "kiwix";
   aria2c = "${pkgs.aria2}/bin/aria2c";
 
   cloudNas = lib.findFirst (cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "kiwix") null (
-    lib.attrValues (serverConfig.nas or { })
+    lib.attrValues config.homelab.nas
   );
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.kiwix}" else null;

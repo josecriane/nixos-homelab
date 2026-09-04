@@ -1,20 +1,19 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "authentik";
   markerFile = "/var/lib/authentik-nas-apps-done";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
 
   # Detect old single-NAS config vs new multi-NAS config
-  rawNasConfig = serverConfig.nas or { };
+  rawNasConfig = config.homelab.nas;
   isOldFormat = rawNasConfig ? ip;
 
   # Normalize to new format

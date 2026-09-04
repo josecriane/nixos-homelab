@@ -1,19 +1,18 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/arr-download-clients-setup-done";
   curl = "curl";
 
-  qbitCfg = serverConfig.qbittorrent or { };
+  qbitCfg = config.homelab.qbittorrent;
   qbitMaxActiveDownloads = toString (qbitCfg.maxActiveDownloads or 5);
   qbitMaxActiveTorrents = toString (qbitCfg.maxActiveTorrents or 10);
   qbitMaxActiveUploads = toString (qbitCfg.maxActiveUploads or 3);

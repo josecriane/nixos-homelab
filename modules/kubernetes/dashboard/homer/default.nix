@@ -4,17 +4,17 @@
 # config.yml is built from serverConfig.services and hostnames, then embedded
 # in a chart-managed ConfigMap and mounted into the container.
 {
+  config,
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
 
-  svc = serverConfig.services or { };
+  svc = config.homelab.services;
   enabled = name: svc.${name} or false;
   h = k8s.hostname;
 
@@ -212,7 +212,7 @@ let
     ]
   );
 
-  longhornCfg = serverConfig.storage.longhorn or { };
+  longhornCfg = serverConfig.storage.longhorn;
   longhornEnabled = (longhornCfg.enable or false) && ((longhornCfg.ingress or null) != null);
 
   infraGroup = mkGroup "Infrastructure" "fas fa-server" (

@@ -1,14 +1,13 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "authentik";
   markerFile = "/var/lib/authentik-sso-setup-done";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";

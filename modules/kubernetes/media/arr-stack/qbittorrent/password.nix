@@ -4,14 +4,13 @@
 # one from a K8s secret (generating it if missing), and configures the save
 # path under /data/torrents.
 {
+  k8s,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/qbittorrent-password-setup-done";
 in

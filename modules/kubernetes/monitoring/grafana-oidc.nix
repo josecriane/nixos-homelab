@@ -2,16 +2,15 @@
 # The stack itself (Grafana + Prometheus + Loki + Promtail) lives in nixos-k8s;
 # this module only wires up the Authentik-specific OIDC envFrom secret.
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "monitoring";
 in
 {

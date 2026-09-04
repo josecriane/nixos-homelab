@@ -5,15 +5,15 @@
 # Post-install configuration (wizard, libraries, VA-API, SSO plugin)
 # runs in a separate systemd service so Helm reconciliation stays idempotent.
 {
+  config,
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   configMarkerFile = "/var/lib/jellyfin-config-setup-done";
   jellyfinHostname = k8s.hostname "jellyfin";
@@ -45,7 +45,7 @@ let
       path = "/data/tv-es";
     }
   ];
-  libraries = (serverConfig.jellyfin or { }).libraries or defaultLibraries;
+  libraries = config.homelab.jellyfin.libraries or defaultLibraries;
   libraryNames = map (l: l.name) libraries;
   libraryEntries = lib.concatMapStringsSep " " (l: ''"${l.type}:${l.name}:${l.path}"'') libraries;
   libraryPaths = lib.concatMapStringsSep " " (l: l.path) libraries;

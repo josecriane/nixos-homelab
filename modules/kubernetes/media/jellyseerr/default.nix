@@ -5,15 +5,14 @@
 # the oidc-config init container. A separate systemd service
 # (jellyseerr-oidc-config-setup) creates that ConfigMap once SSO is ready.
 {
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
   oidcMarkerFile = "/var/lib/jellyseerr-oidc-config-done";

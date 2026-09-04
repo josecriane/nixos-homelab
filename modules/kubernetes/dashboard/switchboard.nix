@@ -6,18 +6,17 @@
 # runs a scale-down reconciler that enforces disabled services and
 # switchboard.io/* annotations after setup scripts re-apply specs.
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
   nodeConfig,
-  nixos-k8s,
   switchboard,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "switchboard";
   markerFile = "/var/lib/switchboard-setup-done";
   isBootstrap = nodeConfig.bootstrap or false;
@@ -47,7 +46,7 @@ let
       (builtins.readFile (switchboardPkgs.manifests + "/manifests.yaml"))
   );
 
-  svc = serverConfig.services or { };
+  svc = config.homelab.services;
   enabled = name: svc.${name} or false;
 
   serviceNamespaces = {
@@ -235,7 +234,7 @@ in
             wantedBy = [ "multi-user.target" ];
 
             restartTriggers = [
-              (builtins.toJSON (serverConfig.services or { }))
+              (builtins.toJSON config.homelab.services)
             ]
             ++ (map (n: config.systemd.services.${n}.serviceConfig.ExecStart or "") setupServices);
 

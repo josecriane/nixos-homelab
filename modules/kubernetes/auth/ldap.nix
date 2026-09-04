@@ -1,20 +1,19 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "authentik";
   markerFile = "/var/lib/authentik-ldap-done";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
 
   # Check if LDAP is enabled (used by Syncthing and other services)
-  ldapEnabled = serverConfig.authentik.ldap.enable or false;
+  ldapEnabled = config.homelab.authentik.ldap.enable;
   ldapIP = serverConfig.authentik.ldap.ip or serverConfig.traefikIP;
 in
 {

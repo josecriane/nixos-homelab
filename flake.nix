@@ -32,25 +32,7 @@
       ...
     }@inputs:
     let
-      # Homelab defaults layered onto raw clusterConfig. Upstream modules
-      # are inconsistent about default cert provider (tls-secret.nix defaults
-      # to "manual" while traefik.nix defaults to "acme"), so pin "acme" here.
-      withHomelabDefaults =
-        cfg:
-        cfg
-        // {
-          kubernetes = {
-            engine = "k3s";
-            cni = "flannel";
-            podCidr = "10.42.0.0/16";
-            serviceCidr = "10.43.0.0/16";
-          }
-          // (cfg.kubernetes or { });
-          certificates = {
-            provider = "acme";
-          }
-          // (cfg.certificates or { });
-        };
+      withHomelabDefaults = cfg: nixpkgs.lib.recursiveUpdate (import ./modules/homelab-defaults.nix) cfg;
 
       mkHomelab =
         {
@@ -69,6 +51,7 @@
           }
           // extraSpecialArgs;
           extraModules = [
+            "${self}/modules/options.nix"
             "${self}/modules/core"
             "${self}/modules/services"
             "${self}/modules/kubernetes"
@@ -81,13 +64,6 @@
         builtins.head (builtins.attrNames (nixpkgs.lib.filterAttrs (_: n: n.bootstrap or false) cfg.nodes));
 
       hasLocalConfig = builtins.pathExists "${self}/config.nix";
-      projectDir = builtins.getEnv "PWD";
-      impureSecrets = builtins.path {
-        path = "${projectDir}/secrets";
-        name = "homelab-secrets";
-        filter = _: type: type == "regular";
-      };
-
       standaloneConfigs =
         if hasLocalConfig then
           let
@@ -96,16 +72,6 @@
               clusterConfig = cfg;
               hostsPath = "${self}/hosts";
               secretsPath = "${self}/secrets";
-            };
-          in
-          c // { homelab = c.${bootstrapOf cfg}; }
-        else if projectDir != "" && builtins.pathExists "${projectDir}/config.nix" then
-          let
-            cfg = import "${projectDir}/config.nix";
-            c = mkHomelab {
-              clusterConfig = cfg;
-              hostsPath = "${self}/hosts";
-              secretsPath = impureSecrets;
             };
           in
           c // { homelab = c.${bootstrapOf cfg}; }
@@ -118,6 +84,24 @@
       };
 
       nixosConfigurations = standaloneConfigs;
+
+      checks.x86_64-linux =
+        let
+          base = import "${self}/config.example.nix";
+          mkVariant =
+            suffix: overrides:
+            nixpkgs.lib.mapAttrs'
+              (name: node: nixpkgs.lib.nameValuePair "${name}${suffix}" node.config.system.build.toplevel)
+              (mkHomelab {
+                clusterConfig = base // overrides;
+                hostsPath = "${self}/hosts";
+                secretsPath = "${self}/secrets";
+              });
+        in
+        mkVariant "" { }
+        // mkVariant "-all-services" {
+          services = nixpkgs.lib.mapAttrs (_: _: true) base.services;
+        };
 
       apps = nixos-k8s.apps;
 

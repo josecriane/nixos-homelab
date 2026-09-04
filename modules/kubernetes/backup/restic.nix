@@ -23,14 +23,10 @@ let
   umount = "${pkgs.util-linux}/bin/umount";
   timeout = "${pkgs.coreutils}/bin/timeout";
 
-  useNFS = serverConfig.storage.useNFS or false;
+  useNFS = serverConfig.storage.useNFS;
 
   nasMountPoint = "/mnt/nas1";
-  backupDir =
-    if useNFS then
-      "${nasMountPoint}/backups"
-    else
-      (serverConfig.backup.localPath or "/var/lib/backup/repo");
+  backupDir = if useNFS then "${nasMountPoint}/backups" else config.homelab.backup.localPath;
 
   # Backup paths
   resticRepo = "${backupDir}/restic-repo";
@@ -41,12 +37,12 @@ let
 
   stageDir = "/run/backup-volumes";
 
-  extraPaths = serverConfig.backup.extraPaths or [ ];
+  extraPaths = config.homelab.backup.extraPaths;
 
   backupDirIsBind =
     useNFS
     && lib.any (cfg: (cfg.enabled or false) && lib.elem "backups" (cfg.mediaPaths or [ ])) (
-      lib.attrValues (serverConfig.nas or { })
+      lib.attrValues config.homelab.nas
     );
 
   mountUnits = lib.optionals useNFS (

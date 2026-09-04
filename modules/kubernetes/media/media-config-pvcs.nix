@@ -1,12 +1,10 @@
 {
+  k8s,
   pkgs,
-  serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "media";
   markerFile = "/var/lib/media-config-pvcs-setup-done";
 

@@ -1,20 +1,19 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "immich";
   markerFile = "/var/lib/immich-setup-done";
 
   # Find NAS with cloudPaths.immich for PV fallback creation
   cloudNas = lib.findFirst (cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "immich") null (
-    lib.attrValues (serverConfig.nas or { })
+    lib.attrValues config.homelab.nas
   );
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.immich}" else null;

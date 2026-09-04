@@ -1,9 +1,9 @@
 {
   config,
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
@@ -13,11 +13,10 @@
 # main PVC is already bound.
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   markerFile = "/var/lib/nfs-storage-cloud-setup-done";
 
   cloudNasList = lib.filter (cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) != { }) (
-    lib.attrValues (serverConfig.nas or { })
+    lib.attrValues config.homelab.nas
   );
 
   hasCloudPVs = cloudNasList != [ ];

@@ -1,19 +1,18 @@
 {
+  k8s,
   config,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
   ns = "nas";
   markerFile = "/var/lib/nas-integration-setup-done";
 
   # Detect old single-NAS config vs new multi-NAS config
-  rawNasConfig = serverConfig.nas or { };
+  rawNasConfig = config.homelab.nas;
 
   # Check if it's old format (has 'ip' directly) or new format (attribute set of NAS)
   isOldFormat = rawNasConfig ? ip;

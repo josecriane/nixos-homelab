@@ -4,15 +4,14 @@
 # secret (created by arr-secrets-setup.service). Ingress uses Authentik
 # ForwardAuth middleware + Lidarr's own local auth.
 {
+  k8s,
   lib,
   pkgs,
   serverConfig,
-  nixos-k8s,
   ...
 }:
 
 let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" { inherit pkgs serverConfig; };
 
   release = k8s.createHelmRelease {
     name = "lidarr";
