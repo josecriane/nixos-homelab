@@ -73,7 +73,7 @@ let
   preHelm = pkgs.writeShellScript "openstreetmap-pre-helm" ''
     ${k8s.libShSource}
     wait_for_k3s
-    setup_namespace "${ns}"
+    ensure_namespace "${ns}"
 
     if ! $KUBECTL get pv openstreetmap-data-pv >/dev/null 2>&1; then
       ${
