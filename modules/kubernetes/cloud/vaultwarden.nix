@@ -21,10 +21,14 @@ let
       local inline
       inline=$($KUBECTL get statefulset vaultwarden -n ${ns} \
         -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_TOKEN")].value}' 2>/dev/null || true)
-      if [ -n "$inline" ]; then
-        echo "Removing inline ADMIN_TOKEN from the StatefulSet (now read from ${tokenSecretName})"
-        $KUBECTL set env statefulset/vaultwarden -n ${ns} ADMIN_TOKEN- >/dev/null
+      if [ -z "$inline" ]; then
+        return 0
       fi
+
+      echo "Migrating the inline ADMIN_TOKEN to ${tokenSecretName}"
+      $KUBECTL scale statefulset/vaultwarden -n ${ns} --replicas=0
+      $KUBECTL wait --for=delete pod/vaultwarden-0 -n ${ns} --timeout=180s || true
+      $KUBECTL set env statefulset/vaultwarden -n ${ns} ADMIN_TOKEN- >/dev/null
     }
 
     vaultwarden_ensure_token_secret() {
