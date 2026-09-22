@@ -10,6 +10,7 @@
 
 let
   ns = "authentik";
+  chartVersion = "2026.8.3";
   markerFile = "/var/lib/authentik-setup-done";
 in
 {
@@ -52,7 +53,7 @@ in
                 AUTHENTIK_ADMIN_PASSWORD=$(cat ${config.age.secrets.authentik-admin-password.path})
 
                 # Install Authentik
-                helm_install "authentik" "authentik/authentik" "${ns}" "25m" \
+                helm_install "authentik" "authentik/authentik" "${ns}" "25m" "${chartVersion}" \
                   "authentik.secret_key=$AUTHENTIK_SECRET_KEY" \
                   "authentik.error_reporting.enabled=false" \
                   "authentik.postgresql.password=$POSTGRES_PASSWORD" \

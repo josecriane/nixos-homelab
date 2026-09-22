@@ -8,6 +8,76 @@
 let
   ns = "vaultwarden";
   markerFile = "/var/lib/vaultwarden-setup-done";
+  chartVersion = "0.46.2";
+  credSecretName = "vaultwarden-admin-credentials";
+  tokenSecretName = "vaultwarden-admin-token";
+  ssoSecretName = "authentik-sso-credentials";
+
+  # Shared helpers, sourced by both setup services so a single set of chart
+  # values is used everywhere. Two callers with different values would flip the
+  # release back and forth on every deploy.
+  helpers = ''
+    vaultwarden_migrate_inline_token() {
+      local inline
+      inline=$($KUBECTL get statefulset vaultwarden -n ${ns} \
+        -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_TOKEN")].value}' 2>/dev/null || true)
+      if [ -n "$inline" ]; then
+        echo "Removing inline ADMIN_TOKEN from the StatefulSet (now read from ${tokenSecretName})"
+        $KUBECTL set env statefulset/vaultwarden -n ${ns} ADMIN_TOKEN- >/dev/null
+      fi
+    }
+
+    vaultwarden_ensure_token_secret() {
+      local hash
+      hash=$(get_secret_value "${ns}" "${tokenSecretName}" "ADMIN_TOKEN")
+      if [ -z "$hash" ]; then
+        hash=$(get_secret_value "${ns}" "${credSecretName}" "ADMIN_TOKEN_HASH")
+      fi
+      if [ -z "$hash" ]; then
+        hash=$($KUBECTL get statefulset vaultwarden -n ${ns} \
+          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_TOKEN")].value}' 2>/dev/null || true)
+      fi
+      store_credentials "${ns}" "${tokenSecretName}" "ADMIN_TOKEN=$hash"
+    }
+
+    vaultwarden_helm_apply() {
+      local signups="true"
+      if [ -n "$(get_secret_value "${ns}" "${credSecretName}" "USER_EMAIL")" ]; then
+        signups="false"
+      fi
+
+      local -a sso_sets=()
+      if [ -n "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then
+        sso_sets=(
+          "sso.enabled=true"
+          "sso.authority=https://$(hostname auth)/application/o/vaultwarden/"
+          "sso.pkce=true"
+          "sso.existingSecret=${ssoSecretName}"
+          "sso.clientId.existingSecretKey=VAULTWARDEN_CLIENT_ID"
+          "sso.clientSecret.existingSecretKey=VAULTWARDEN_CLIENT_SECRET"
+        )
+        echo "SSO credentials present, enabling SSO"
+      else
+        echo "No SSO credentials yet, installing without SSO"
+      fi
+
+      helm_install "vaultwarden" "guerzon/vaultwarden" "${ns}" "5m" "${chartVersion}" \
+        "domain=https://$(hostname vault)" \
+        "signupsAllowed=$signups" \
+        "signupsVerify=false" \
+        "invitationsAllowed=true" \
+        "showPasswordHint=false" \
+        "websocket.enabled=true" \
+        "storage.data.name=vaultwarden-data" \
+        "storage.data.size=10Gi" \
+        "storage.data.class=local-path" \
+        "storage.data.accessMode=ReadWriteOnce" \
+        "ingress.enabled=false" \
+        "adminToken.existingSecret=${tokenSecretName}" \
+        "adminToken.existingSecretKey=ADMIN_TOKEN" \
+        "''${sso_sets[@]}"
+    }
+  '';
 in
 {
   systemd.services.vaultwarden-setup = {
@@ -23,6 +93,7 @@ in
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "vaultwarden-setup" ''
         ${k8s.libShSource}
+        ${helpers}
         setup_preamble "${markerFile}" "Vaultwarden"
 
         wait_for_k3s
@@ -32,19 +103,10 @@ in
         helm_repo_add "guerzon" "https://guerzon.github.io/vaultwarden"
         ensure_namespace "${ns}"
 
-        # Install Vaultwarden with persistence
-        helm_install "vaultwarden" "guerzon/vaultwarden" "${ns}" "5m" \
-          "domain=https://$(hostname vault)" \
-          "signupsAllowed=true" \
-          "signupsVerify=false" \
-          "invitationsAllowed=true" \
-          "showPasswordHint=false" \
-          "websocket.enabled=true" \
-          "storage.data.name=vaultwarden-data" \
-          "storage.data.size=10Gi" \
-          "storage.data.class=local-path" \
-          "storage.data.accessMode=ReadWriteOnce" \
-          "ingress.enabled=false"
+        vaultwarden_ensure_token_secret
+        vaultwarden_migrate_inline_token
+
+        vaultwarden_helm_apply
 
         wait_for_pod "${ns}" "app.kubernetes.io/name=vaultwarden" 300
 
@@ -85,57 +147,21 @@ in
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "vaultwarden-sso-setup" ''
         ${k8s.libShSource}
+        ${helpers}
         setup_preamble "/var/lib/vaultwarden-sso-setup-done" "Vaultwarden SSO"
 
         # Wait for SSO credentials
-        wait_for_resource "secret" "${ns}" "authentik-sso-credentials" 300
+        wait_for_resource "secret" "${ns}" "${ssoSecretName}" 300
 
-        SSO_CLIENT_ID=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.VAULTWARDEN_CLIENT_ID}' | base64 -d)
-        SSO_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.VAULTWARDEN_CLIENT_SECRET}' | base64 -d)
-
-        if [ -z "$SSO_CLIENT_SECRET" ]; then
+        if [ -z "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then
           echo "No SSO credentials found, skipping"
           exit 0
         fi
 
-        # Read ADMIN_TOKEN and SIGNUPS_ALLOWED before helm upgrade resets env vars
-        EXISTING_ADMIN_TOKEN=$($KUBECTL get statefulset vaultwarden -n ${ns} \
-          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_TOKEN")].value}' 2>/dev/null || true)
-        EXISTING_SIGNUPS=$($KUBECTL get statefulset vaultwarden -n ${ns} \
-          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="SIGNUPS_ALLOWED")].value}' 2>/dev/null || true)
+        vaultwarden_ensure_token_secret
+        vaultwarden_migrate_inline_token
 
-        # Upgrade with SSO enabled and persistence
-        helm_install "vaultwarden" "guerzon/vaultwarden" "${ns}" "5m" \
-          "domain=https://$(hostname vault)" \
-          "signupsAllowed=true" \
-          "signupsVerify=false" \
-          "invitationsAllowed=true" \
-          "showPasswordHint=false" \
-          "websocket.enabled=true" \
-          "storage.data.name=vaultwarden-data" \
-          "storage.data.size=10Gi" \
-          "storage.data.class=local-path" \
-          "storage.data.accessMode=ReadWriteOnce" \
-          "ingress.enabled=false" \
-          "env.SSO_ENABLED=true"
-
-        # Restore ADMIN_TOKEN and env vars after helm upgrade
-        EXTRA_ENV_ARGS=""
-        if [ -n "$EXISTING_ADMIN_TOKEN" ]; then
-          EXTRA_ENV_ARGS="ADMIN_TOKEN=$EXISTING_ADMIN_TOKEN"
-          echo "Restoring ADMIN_TOKEN after helm upgrade"
-        fi
-        if [ "$EXISTING_SIGNUPS" = "false" ]; then
-          EXTRA_ENV_ARGS="$EXTRA_ENV_ARGS SIGNUPS_ALLOWED=false"
-          echo "Restoring SIGNUPS_ALLOWED=false after helm upgrade"
-        fi
-
-        $KUBECTL set env statefulset/vaultwarden -n ${ns} \
-          SSO_CLIENT_ID="$SSO_CLIENT_ID" \
-          SSO_CLIENT_SECRET="$SSO_CLIENT_SECRET" \
-          SSO_AUTHORITY="https://$(hostname auth)/application/o/vaultwarden/" \
-          SSO_PKCE="true" \
-          $EXTRA_ENV_ARGS
+        vaultwarden_helm_apply
 
         wait_for_pod "${ns}" "app.kubernetes.io/name=vaultwarden" 300
 

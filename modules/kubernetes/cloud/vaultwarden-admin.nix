@@ -12,6 +12,7 @@ let
   ns = "vaultwarden";
   markerFile = "/var/lib/vaultwarden-admin-setup-done";
   credSecretName = "vaultwarden-admin-credentials";
+  tokenSecretName = "vaultwarden-admin-token";
   adminEmail = serverConfig.authentik.adminEmail;
 
   python = pkgs.python3.withPackages (ps: [ ps.cryptography ]);
@@ -76,11 +77,10 @@ in
           echo "Reusing existing admin password from K8s secret"
         fi
 
-        # Check if ADMIN_TOKEN is already set on the StatefulSet
-        EXISTING_TOKEN=$($KUBECTL get statefulset vaultwarden -n ${ns} \
-          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_TOKEN")].value}' 2>/dev/null || true)
+        # Check if the admin token is already published for the chart
+        EXISTING_TOKEN=$(get_secret_value "${ns}" "${tokenSecretName}" "ADMIN_TOKEN")
         if [ -n "$EXISTING_TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
-          echo "ADMIN_TOKEN already set on StatefulSet, skipping token setup"
+          echo "ADMIN_TOKEN already published, skipping token setup"
           ADMIN_TOKEN_HASH="$EXISTING_TOKEN"
         fi
 
@@ -98,13 +98,13 @@ in
           echo "Admin token hashed"
         fi
 
-        # Apply ADMIN_TOKEN to StatefulSet
-        if [ -z "$EXISTING_TOKEN" ]; then
-          echo "Setting ADMIN_TOKEN on Vaultwarden StatefulSet..."
-          $KUBECTL set env statefulset/vaultwarden -n ${ns} \
-            ADMIN_TOKEN="$ADMIN_TOKEN_HASH"
+        # Publish the hash where the chart reads ADMIN_TOKEN from
+        if [ "$EXISTING_TOKEN" != "$ADMIN_TOKEN_HASH" ]; then
+          echo "Publishing ADMIN_TOKEN to ${tokenSecretName}..."
+          store_credentials "${ns}" "${tokenSecretName}" "ADMIN_TOKEN=$ADMIN_TOKEN_HASH"
 
-          echo "Waiting for Vaultwarden pod to restart..."
+          echo "Restarting Vaultwarden to pick up the token..."
+          $KUBECTL -n ${ns} rollout restart statefulset/vaultwarden
           sleep 10
           wait_for_pod "${ns}" "app.kubernetes.io/name=vaultwarden" 300
         fi

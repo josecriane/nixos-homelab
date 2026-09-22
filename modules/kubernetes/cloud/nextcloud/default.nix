@@ -175,7 +175,7 @@ in
 
         # Install Nextcloud
         CLOUD_HOST=$(hostname cloud)
-        helm_install "nextcloud" "nextcloud/nextcloud" "${ns}" "15m" \
+        helm_install "nextcloud" "nextcloud/nextcloud" "${ns}" "15m" "" \
           "nextcloud.host=$CLOUD_HOST" \
           "nextcloud.username=admin" \
           "nextcloud.password=$NEXTCLOUD_ADMIN_PASSWORD" \
