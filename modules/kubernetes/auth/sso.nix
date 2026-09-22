@@ -558,6 +558,11 @@ in
                 create_forward_auth_app "Traefik" "traefik" "https://$(hostname traefik)"
                 create_forward_auth_app "Longhorn" "longhorn" "https://$(hostname longhorn)"
 
+                ${lib.concatMapStringsSep "\n                " (
+                  app:
+                  ''create_forward_auth_app "${app.name}" "${app.slug}" "https://$(hostname ${app.host})" "${app.skipPath or ""}"''
+                ) (serverConfig.authentik.forwardAuthApps or [ ])}
+
                 # ============================================
                 # SAVE CREDENTIALS
                 # ============================================
