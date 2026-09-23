@@ -9,7 +9,7 @@
 
 let
   ns = "authentik";
-  markerFile = "/var/lib/authentik-ldap-done";
+  markerFile = "/var/lib/authentik-ldap-setup-done";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
 
   # Check if LDAP is enabled (used by Syncthing and other services)

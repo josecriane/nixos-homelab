@@ -15,7 +15,7 @@
 
 let
   ns = "authentik";
-  markerFile = "/var/lib/authentik-bootstrap-users-done";
+  markerFile = "/var/lib/authentik-bootstrap-users-setup-done";
 
   users = config.homelab.authentik.bootstrapUsers;
 

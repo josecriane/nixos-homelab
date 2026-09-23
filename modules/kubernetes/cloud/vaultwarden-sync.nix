@@ -7,7 +7,7 @@
 }:
 
 let
-  markerFile = "/var/lib/vaultwarden-sync-done";
+  markerFile = "/var/lib/vaultwarden-sync-setup-done";
 in
 {
   systemd.services.vaultwarden-sync = {

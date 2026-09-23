@@ -9,7 +9,7 @@
 
 let
   ns = "authentik";
-  markerFile = "/var/lib/authentik-nas-apps-done";
+  markerFile = "/var/lib/authentik-nas-apps-setup-done";
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
 
   # Detect old single-NAS config vs new multi-NAS config
