@@ -473,6 +473,8 @@ in
                   fi
                 fi
 
+                FWD_PROVIDER_PKS=""
+
                 create_forward_auth_app() {
                   local APP_NAME="$1"
                   local SLUG="$2"
@@ -509,18 +511,8 @@ in
                     echo "  $APP_NAME: provider exists"
                   fi
 
-                  # Assign to outpost
-                  if [ -n "$OUTPOST_PK" ] && [ -n "$PROVIDER_PK" ]; then
-                    CURRENT_PROVIDERS=$($CURL -s "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" | $JQ -r '[.providers[]] | map(tostring) | join(",")')
-                    if ! echo ",$CURRENT_PROVIDERS," | grep -q ",$PROVIDER_PK,"; then
-                      if [ -n "$CURRENT_PROVIDERS" ]; then
-                        ALL_PROVIDERS="[$CURRENT_PROVIDERS,$PROVIDER_PK]"
-                      else
-                        ALL_PROVIDERS="[$PROVIDER_PK]"
-                      fi
-                      $CURL -s -X PATCH "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" -H "Content-Type: application/json" \
-                        -d "{\"providers\": $ALL_PROVIDERS}" > /dev/null
-                    fi
+                  if [ -n "$PROVIDER_PK" ]; then
+                    FWD_PROVIDER_PKS="$FWD_PROVIDER_PKS $PROVIDER_PK"
                   fi
 
                   # Create application
@@ -537,6 +529,31 @@ in
                   else
                     echo "  $APP_NAME: app exists"
                   fi
+                }
+
+                sync_outpost_providers() {
+                  [ -n "$OUTPOST_PK" ] || return 0
+                  [ -n "$FWD_PROVIDER_PKS" ] || return 0
+
+                  CURRENT_PROVIDERS=$($CURL -s "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" | $JQ -r '[.providers[]] | map(tostring) | join(" ")')
+
+                  MISSING=""
+                  for PK in $FWD_PROVIDER_PKS; do
+                    case " $CURRENT_PROVIDERS $MISSING " in
+                      *" $PK "*) ;;
+                      *) MISSING="$MISSING $PK" ;;
+                    esac
+                  done
+
+                  if [ -z "$MISSING" ]; then
+                    echo "  outpost: every provider already assigned"
+                    return 0
+                  fi
+
+                  ALL_PROVIDERS=$($JQ -n '[$ARGS.positional[] | tonumber] | unique' --args $CURRENT_PROVIDERS $MISSING)
+                  $CURL -s -X PATCH "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" -H "Content-Type: application/json" \
+                    -d "{\"providers\": $ALL_PROVIDERS}" > /dev/null
+                  echo "  outpost: assigned$MISSING"
                 }
 
                 # Arr-stack services (API bypass for external app clients)
@@ -562,6 +579,8 @@ in
                   app:
                   ''create_forward_auth_app "${app.name}" "${app.slug}" "https://$(hostname ${app.host})" "${app.skipPath or ""}"''
                 ) (serverConfig.authentik.forwardAuthApps or [ ])}
+
+                sync_outpost_providers
 
                 # ============================================
                 # SAVE CREDENTIALS
