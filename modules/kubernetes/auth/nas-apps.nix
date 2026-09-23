@@ -258,6 +258,8 @@ in
           # CREATE PROXY PROVIDERS AND APPLICATIONS
           # ============================================
 
+          NAS_PROVIDER_PKS=""
+
           create_proxy_app() {
             local APP_NAME="$1"
             local SLUG="$2"
@@ -293,21 +295,8 @@ in
               echo "$APP_NAME Provider: exists (pk=$PROVIDER_PK)"
             fi
 
-            # Assign provider to outpost
-            if [ -n "$OUTPOST_PK" ] && [ -n "$PROVIDER_PK" ]; then
-              CURRENT_PROVIDERS=$($CURL -s "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" | $JQ -r '[.providers[]] | map(tostring) | join(",")')
-              if ! echo ",$CURRENT_PROVIDERS," | grep -q ",$PROVIDER_PK,"; then
-                if [ -n "$CURRENT_PROVIDERS" ]; then
-                  ALL_PROVIDERS="[$CURRENT_PROVIDERS,$PROVIDER_PK]"
-                else
-                  ALL_PROVIDERS="[$PROVIDER_PK]"
-                fi
-                $CURL -s -X PATCH "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" -H "Content-Type: application/json" \
-                  -d "{\"providers\": $ALL_PROVIDERS}" > /dev/null
-                echo "$APP_NAME Provider: assigned to outpost"
-              else
-                echo "$APP_NAME Provider: already in outpost"
-              fi
+            if [ -n "$PROVIDER_PK" ]; then
+              NAS_PROVIDER_PKS="$NAS_PROVIDER_PKS $PROVIDER_PK"
             fi
 
             # Check if application already exists
@@ -328,6 +317,31 @@ in
             fi
           }
 
+          sync_outpost_providers() {
+            [ -n "$OUTPOST_PK" ] || return 0
+            [ -n "$NAS_PROVIDER_PKS" ] || return 0
+
+            CURRENT_PROVIDERS=$($CURL -s "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" | $JQ -r '[.providers[]] | map(tostring) | join(" ")')
+
+            MISSING=""
+            for PK in $NAS_PROVIDER_PKS; do
+              case " $CURRENT_PROVIDERS $MISSING " in
+                *" $PK "*) ;;
+                *) MISSING="$MISSING $PK" ;;
+              esac
+            done
+
+            if [ -z "$MISSING" ]; then
+              echo "Outpost: every NAS provider already assigned"
+              return 0
+            fi
+
+            ALL_PROVIDERS=$($JQ -n '[$ARGS.positional[] | tonumber] | unique' --args $CURRENT_PROVIDERS $MISSING)
+            $CURL -s -X PATCH "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"providers\": $ALL_PROVIDERS}" > /dev/null
+            echo "Outpost: assigned$MISSING"
+          }
+
           echo ""
           echo "=========================================="
           echo "Creating applications for multiple NAS"
@@ -335,6 +349,8 @@ in
           echo ""
 
           ${generateProxyAppCalls}
+
+          sync_outpost_providers
 
           kill $PF_PID 2>/dev/null || true
 
