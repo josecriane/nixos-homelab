@@ -338,6 +338,7 @@ in
                         \"authorization_flow\": \"$AUTH_FLOW_PK\",
                         \"invalidation_flow\": \"$INVALIDATION_FLOW_PK\",
                         \"client_type\": \"confidential\",
+                        \"grant_types\": [\"authorization_code\", \"refresh_token\"],
                         \"client_id\": \"$CLIENT_ID\",
                         \"client_secret\": \"$CLIENT_SECRET\",
                         \"signing_key\": \"$SIGNING_KEY_PK\",
@@ -367,6 +368,7 @@ in
                     $CURL -s -X PATCH "$API/providers/oauth2/$PROVIDER_PK/" -H "$AUTH" -H "Content-Type: application/json" \
                       -d "{
                         \"client_secret\": \"$CLIENT_SECRET\",
+                        \"grant_types\": [\"authorization_code\", \"refresh_token\"],
                         \"redirect_uris\": $REDIRECT_URIS_JSON
                       }" > /dev/null
                     echo "$APP_NAME Provider: updated (pk=$PROVIDER_PK)"

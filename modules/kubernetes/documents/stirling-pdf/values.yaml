@@ -18,6 +18,7 @@ controllers:
           SECURITY_OAUTH2_ISSUER: https://auth.__SUBDOMAIN__.__DOMAIN__/application/o/stirling-pdf/
           SECURITY_OAUTH2_SCOPES: openid, profile, email
           SECURITY_OAUTH2_USEASUSERNAME: email
+          SECURITY_OAUTH2_PROVIDER: authentik
           SECURITY_OAUTH2_AUTOCREATEUSER: "true"
           SECURITY_OAUTH2_BLOCKREGISTRATION: "false"
           SYSTEM_DEFAULTLOCALE: es-ES
