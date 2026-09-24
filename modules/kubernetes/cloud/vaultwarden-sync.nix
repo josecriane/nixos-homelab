@@ -10,7 +10,7 @@ let
   markerFile = "/var/lib/vaultwarden-sync-setup-done";
 in
 {
-  systemd.services.vaultwarden-sync = {
+  systemd.services.vaultwarden-sync-setup = {
     description = "Sync K8s credential secrets to Vaultwarden";
     after = [
       "k3s-apps.target"

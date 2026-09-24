@@ -9,6 +9,7 @@
 }:
 
 let
+  chartVersion = "9.0.5";
   ns = "nextcloud";
   markerFile = "/var/lib/nextcloud-setup-done";
   ipParts = lib.splitString "." nodeConfig.ip;
@@ -175,7 +176,7 @@ in
 
         # Install Nextcloud
         CLOUD_HOST=$(hostname cloud)
-        helm_install "nextcloud" "nextcloud/nextcloud" "${ns}" "15m" "" \
+        helm_install "nextcloud" "nextcloud/nextcloud" "${ns}" "15m" "${chartVersion}" \
           "nextcloud.host=$CLOUD_HOST" \
           "nextcloud.username=admin" \
           "nextcloud.password=$NEXTCLOUD_ADMIN_PASSWORD" \
