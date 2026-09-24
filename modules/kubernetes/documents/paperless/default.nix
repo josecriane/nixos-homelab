@@ -76,6 +76,8 @@ let
       --from-literal=PAPERLESS_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
       --from-literal=PAPERLESS_SOCIALACCOUNT_PROVIDERS="$PROVIDERS" \
       --dry-run=client -o yaml | $KUBECTL apply -f -)
+    $KUBECTL -n ${ns} label secret paperless-oidc k8s/credential=true --overwrite >/dev/null
+
     echo "$APPLY_OUTPUT"
 
     PAPERLESS_SECRET_CHANGED=0

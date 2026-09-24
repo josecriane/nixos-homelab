@@ -29,6 +29,8 @@ let
       --from-literal=SECURITY_INITIALLOGIN_USERNAME="admin" \
       --from-literal=SECURITY_INITIALLOGIN_PASSWORD="$INITIAL_PASSWORD" \
       --dry-run=client -o yaml | $KUBECTL apply -f -)
+    $KUBECTL -n ${ns} label secret stirling-pdf-auth k8s/credential=true --overwrite >/dev/null
+
     echo "$APPLY_OUTPUT"
 
     STIRLING_SECRET_CHANGED=0
