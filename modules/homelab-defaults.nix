@@ -14,6 +14,8 @@
     kiwix = false;
     openstreetmap = false;
     switchboard = false;
+    paperless = false;
+    stirling-pdf = false;
   };
 
   nas = { };

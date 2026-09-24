@@ -9,6 +9,7 @@
     ./backup
     ./cloud
     ./dashboard
+    ./documents
     ./infrastructure
     ./knowledge
     ./media

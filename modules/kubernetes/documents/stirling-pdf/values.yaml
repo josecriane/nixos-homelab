@@ -1,0 +1,89 @@
+defaultPodOptions:
+  automountServiceAccountToken: false
+controllers:
+  stirling-pdf:
+    strategy: Recreate
+    containers:
+      main:
+        image:
+          repository: docker.io/stirlingtools/stirling-pdf
+          tag: "0.36.5"
+          pullPolicy: IfNotPresent
+        env:
+          TZ: __TIMEZONE__
+          DOCKER_ENABLE_SECURITY: "true"
+          SECURITY_ENABLELOGIN: "true"
+          SECURITY_LOGINMETHOD: all
+          SECURITY_OAUTH2_ENABLED: "true"
+          SECURITY_OAUTH2_ISSUER: https://auth.__SUBDOMAIN__.__DOMAIN__/application/o/stirling-pdf/
+          SECURITY_OAUTH2_SCOPES: openid, profile, email
+          SECURITY_OAUTH2_USEASUSERNAME: email
+          SECURITY_OAUTH2_AUTOCREATEUSER: "true"
+          SECURITY_OAUTH2_BLOCKREGISTRATION: "false"
+          SYSTEM_DEFAULTLOCALE: es-ES
+          SYSTEM_MAXFILESIZE: "200"
+          SYSTEM_GOOGLEVISIBILITY: "false"
+          SHOW_SURVEY: "false"
+          METRICS_ENABLED: "false"
+          UI_APPNAME: Stirling PDF
+          UI_APPNAMENAVBAR: Stirling PDF
+          JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70"
+        envFrom:
+          - secretRef:
+              name: stirling-pdf-auth
+        probes:
+          startup:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /login
+                port: 8080
+              initialDelaySeconds: 10
+              periodSeconds: 5
+              failureThreshold: 24
+          liveness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /login
+                port: 8080
+              periodSeconds: 30
+              timeoutSeconds: 5
+          readiness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /login
+                port: 8080
+              periodSeconds: 15
+              timeoutSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+service:
+  stirling-pdf:
+    controller: stirling-pdf
+    ports:
+      http:
+        port: 8080
+        targetPort: 8080
+persistence:
+  configs:
+    type: persistentVolumeClaim
+    existingClaim: stirling-pdf-configs
+    globalMounts:
+      - path: /configs
+  logs:
+    type: emptyDir
+    globalMounts:
+      - path: /logs
+  tmp:
+    type: emptyDir
+    globalMounts:
+      - path: /tmp

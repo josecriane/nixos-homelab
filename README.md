@@ -46,6 +46,13 @@ All media services are enabled together with `media = true` in config.
 | [Prometheus](https://prometheus.io/) | `prometheus.*` | Metrics collection. Scrapes metrics from all services and the cluster itself. |
 | [Loki](https://grafana.com/oss/loki/) | internal | Log aggregation. Collects logs from all pods, queryable through Grafana. |
 
+### Documents
+
+| Service | URL | What it does |
+|---------|-----|-------------|
+| [Paperless-ngx](https://docs.paperless-ngx.com/) | `paperless.*` | Document manager: OCRs whatever lands in the consume directory and makes it searchable. SQLite on the cluster, documents on the NAS. Logs in through Authentik. |
+| [Stirling PDF](https://stirlingpdf.com/) | `pdf.*` | PDF toolbox: merge, split, rotate, compress, sign, OCR and convert, all on the LAN. Logs in through Authentik. |
+
 ### Knowledge
 
 | Service | URL | What it does |
@@ -222,6 +229,8 @@ services = {
   syncthing = false;   # File sync
   dashboard = true;    # Homarr dashboard
   kiwix = false;       # Offline Wikipedia + iFixit
+  paperless = false;   # Document manager with OCR
+  stirling-pdf = false; # PDF toolbox
 };
 ```
 

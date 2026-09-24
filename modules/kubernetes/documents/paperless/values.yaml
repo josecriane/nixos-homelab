@@ -1,0 +1,120 @@
+defaultPodOptions:
+  automountServiceAccountToken: false
+controllers:
+  paperless:
+    strategy: Recreate
+    containers:
+      main:
+        image:
+          repository: ghcr.io/paperless-ngx/paperless-ngx
+          tag: "3.2.1"
+          pullPolicy: IfNotPresent
+        env:
+          PAPERLESS_URL: https://paperless.__SUBDOMAIN__.__DOMAIN__
+          PAPERLESS_TIME_ZONE: __TIMEZONE__
+          PAPERLESS_REDIS: redis://localhost:6379
+          PAPERLESS_DBENGINE: sqlite
+          PAPERLESS_DATA_DIR: /usr/src/paperless/data
+          PAPERLESS_MEDIA_ROOT: /usr/src/paperless/media
+          PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
+          PAPERLESS_EXPORT_DIR: /usr/src/paperless/export
+          PAPERLESS_OCR_LANGUAGE: spa+eng
+          PAPERLESS_TASK_WORKERS: "2"
+          PAPERLESS_THREADS_PER_WORKER: "1"
+          PAPERLESS_APPS: allauth.socialaccount.providers.openid_connect
+          PAPERLESS_SOCIAL_AUTO_SIGNUP: "true"
+          PAPERLESS_SOCIALACCOUNT_ALLOW_SIGNUPS: "true"
+          PAPERLESS_ACCOUNT_ALLOW_SIGNUPS: "false"
+          PAPERLESS_SOCIAL_ACCOUNT_SYNC_GROUPS: "true"
+          PAPERLESS_SOCIAL_ACCOUNT_SYNC_SUPERUSER_GROUP: admins
+          USERMAP_UID: "__PUID__"
+          USERMAP_GID: "__PGID__"
+        envFrom:
+          - secretRef:
+              name: paperless-oidc
+        probes:
+          startup:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /accounts/login/
+                port: 8000
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              failureThreshold: 60
+          liveness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /accounts/login/
+                port: 8000
+              periodSeconds: 30
+              timeoutSeconds: 10
+              failureThreshold: 5
+          readiness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /accounts/login/
+                port: 8000
+              periodSeconds: 15
+              timeoutSeconds: 10
+              failureThreshold: 5
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+      redis:
+        image:
+          repository: docker.io/library/redis
+          tag: "7.4-alpine"
+          pullPolicy: IfNotPresent
+        args:
+          - --save
+          - ""
+          - --appendonly
+          - "no"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+service:
+  paperless:
+    controller: paperless
+    ports:
+      http:
+        port: 8000
+        targetPort: 8000
+persistence:
+  data:
+    type: persistentVolumeClaim
+    existingClaim: paperless-data
+    advancedMounts:
+      paperless:
+        main:
+          - path: /usr/src/paperless/data
+  documents:
+    type: persistentVolumeClaim
+    existingClaim: paperless-documents
+    advancedMounts:
+      paperless:
+        main:
+          - path: /usr/src/paperless/media
+            subPath: media
+          - path: /usr/src/paperless/consume
+            subPath: consume
+          - path: /usr/src/paperless/export
+            subPath: export
+  redis-data:
+    type: emptyDir
+    advancedMounts:
+      paperless:
+        redis:
+          - path: /data

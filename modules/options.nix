@@ -40,6 +40,8 @@ in
           kiwix = bool defaults.services.kiwix;
           openstreetmap = bool defaults.services.openstreetmap;
           switchboard = bool defaults.services.switchboard;
+          paperless = bool defaults.services.paperless;
+          stirling-pdf = bool defaults.services.stirling-pdf;
         };
       };
 

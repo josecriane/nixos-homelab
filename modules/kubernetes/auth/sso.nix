@@ -10,6 +10,30 @@
 let
   ns = "authentik";
   markerFile = "/var/lib/authentik-sso-setup-done";
+  oidcApps = (serverConfig.authentik.oidcApps or [ ]) ++ config.sso.oidcApps;
+  oidcEnv = app: lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] app.slug);
+  oidcNamespaces = lib.unique (lib.filter (n: n != null) (map (app: app.namespace or null) oidcApps));
+  oidcRef = app: "\$${oidcEnv app}_CLIENT_SECRET";
+
+  oidcSecretLines = lib.concatMapStringsSep "\n" (
+    app: "                ${oidcEnv app}_CLIENT_SECRET=$(oidc_secret ${oidcEnv app}_CLIENT_SECRET)"
+  ) oidcApps;
+
+  oidcCreateCalls = lib.concatMapStringsSep "\n\n" (
+    app:
+    "                create_oidc_app \"${app.name}\" \"${app.slug}\" \"${app.clientId or app.slug}\" \"${oidcRef app}\" \\\n"
+    + "                  \"https://${app.host}.${domain}\""
+    + lib.concatMapStrings (path: " \\\n                  \"https://${app.host}.${domain}${path}\"") (
+      app.redirectPaths or [ ]
+    )
+  ) oidcApps;
+
+  oidcStoreArgs = lib.concatMapStrings (
+    app:
+    " \\\n                  \"${oidcEnv app}_CLIENT_ID=${app.clientId or app.slug}\""
+    + " \\\n                  \"${oidcEnv app}_CLIENT_SECRET=${oidcRef app}\""
+  ) oidcApps;
+
   domain = "${serverConfig.subdomain}.${serverConfig.domain}";
 in
 {
@@ -218,6 +242,15 @@ in
                 [ -z "$VAULTWARDEN_CLIENT_SECRET" ] && VAULTWARDEN_CLIENT_SECRET=$(generate_hex 32)
                 [ -z "$KAVITA_CLIENT_SECRET" ] && KAVITA_CLIENT_SECRET=$(generate_hex 32)
 
+                oidc_secret() {
+                  local name="$1" val
+                  val=$(get_existing "$name")
+                  [ -z "$val" ] && val=$(generate_hex 32)
+                  echo "$val"
+                }
+
+                ${oidcSecretLines}
+
                 # ============================================
                 # GET REQUIRED RESOURCES
                 # ============================================
@@ -389,6 +422,8 @@ in
                 create_oidc_app "Kavita" "kavita" "kavita" "$KAVITA_CLIENT_SECRET" \
                   "https://kavita.${domain}" \
                   "https://kavita.${domain}/signin-oidc"
+
+                ${oidcCreateCalls}
 
                 # ============================================
                 # KAVITA ROLES SCOPE MAPPING
@@ -602,10 +637,12 @@ in
                   "VAULTWARDEN_CLIENT_ID=vaultwarden" \
                   "VAULTWARDEN_CLIENT_SECRET=$VAULTWARDEN_CLIENT_SECRET" \
                   "KAVITA_CLIENT_ID=kavita" \
-                  "KAVITA_CLIENT_SECRET=$KAVITA_CLIENT_SECRET"
+                  "KAVITA_CLIENT_SECRET=$KAVITA_CLIENT_SECRET"${oidcStoreArgs}
 
                 # Copy to namespaces
-                for target_ns in monitoring nextcloud media immich vaultwarden; do
+                for target_ns in monitoring nextcloud media immich vaultwarden${
+                  lib.concatMapStrings (n: " " + n) oidcNamespaces
+                }; do
                   $KUBECTL create namespace $target_ns --dry-run=client -o yaml | $KUBECTL apply -f -
                   $KUBECTL get secret authentik-sso-credentials -n traefik-system -o json | \
                     $JQ 'del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.annotations)' | \
