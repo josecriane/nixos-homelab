@@ -20,6 +20,7 @@ in
   imports =
     lib.optionals (onBootstrap "paperless") [
       ./paperless
+      ./paperless/backup.nix
     ]
     ++ lib.optionals (onBootstrap "stirling-pdf") [
       ./stirling-pdf
