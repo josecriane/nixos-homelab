@@ -1,0 +1,17 @@
+domain: https://vault.__SUBDOMAIN__.__DOMAIN__
+signupsVerify: false
+invitationsAllowed: true
+showPasswordHint: false
+websocket:
+  enabled: true
+storage:
+  data:
+    name: vaultwarden-data
+    size: 10Gi
+    class: local-path
+    accessMode: ReadWriteOnce
+ingress:
+  enabled: false
+adminToken:
+  existingSecret: __TOKEN_SECRET__
+  existingSecretKey: ADMIN_TOKEN

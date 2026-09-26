@@ -99,11 +99,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788465610,
-        "narHash": "sha256-uWWDrXlgQBE1WffDDqgTJKjxF5NRCinIG8vuR/LwPik=",
+        "lastModified": 1790422264,
+        "narHash": "sha256-X8S67BgBPeeqn8pcD+BH9zDgT1LkUgZB/u0x5+7EZn8=",
         "owner": "josecriane",
         "repo": "nixos-k8s",
-        "rev": "07da71bd5dc4b81c0588c2cc8cdd4249694032b8",
+        "rev": "1329a44e4c69a5a6fe1301590920119c55e9e01a",
         "type": "github"
       },
       "original": {

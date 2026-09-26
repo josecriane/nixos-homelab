@@ -210,7 +210,7 @@ in
 }
 ```
 
-See [josecriane/nixos-k8s](https://github.com/josecriane/nixos-k8s) for the underlying cluster library and the full list of bash helpers (`setup_preamble`, `wait_for_k3s`, `create_ingress_route`, `create_pvc`, `helm_install`, etc.).
+See [josecriane/nixos-k8s](https://github.com/josecriane/nixos-k8s) for the underlying cluster library and the full list of bash helpers (`setup_preamble`, `wait_for_k3s`, `create_ingress_route`, `create_pvc`, `helm_repo_add`, etc.).
 
 ## Configuration
 

@@ -1,0 +1,46 @@
+authentik:
+  error_reporting:
+    enabled: false
+  bootstrap_email: __ADMIN_EMAIL__
+  web:
+    workers: 1
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      enabled: true
+      size: 2Gi
+    resources:
+      requests:
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    extendedConfiguration: shared_buffers = 32MB
+redis:
+  enabled: true
+  master:
+    persistence:
+      enabled: true
+      size: 1Gi
+server:
+  ingress:
+    enabled: false
+  replicas: 1
+  resources:
+    requests:
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  livenessProbe:
+    timeoutSeconds: 10
+    failureThreshold: 5
+  readinessProbe:
+    timeoutSeconds: 10
+    failureThreshold: 5
+worker:
+  replicas: 1
+  resources:
+    requests:
+      memory: 320Mi
+    limits:
+      memory: 576Mi
