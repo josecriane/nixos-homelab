@@ -77,21 +77,21 @@ in
                   TRAEFIK_IP="${serverConfig.traefikIP}"
                 fi
 
-                # Check if CoreDNS custom config already exists and is correct
-                CURRENT_CONFIG=$($KUBECTL get configmap coredns-custom -n kube-system -o jsonpath='{.data.local-dns\.server}' 2>/dev/null || echo "")
-                if echo "$CURRENT_CONFIG" | grep -q "${serverConfig.traefikIP}" && echo "$CURRENT_CONFIG" | grep -q "forward"; then
+                CONFIG_BEFORE=$($KUBECTL get configmap coredns-custom -n kube-system -o jsonpath='{.data.local-dns\.server}' 2>/dev/null || echo "")
+
+                ${k8s.applyManifestsScript {
+                  name = "sso-coredns-custom";
+                  manifests = [ ./coredns-custom.yaml ];
+                  substitutions = {
+                    TRAEFIK_IP = serverConfig.traefikIP;
+                  };
+                }}
+
+                CONFIG_AFTER=$($KUBECTL get configmap coredns-custom -n kube-system -o jsonpath='{.data.local-dns\.server}' 2>/dev/null || echo "")
+
+                if [ "$CONFIG_BEFORE" = "$CONFIG_AFTER" ]; then
                   echo "CoreDNS already configured correctly"
                 else
-                  echo "Creating/updating CoreDNS configuration..."
-
-                  ${k8s.applyManifestsScript {
-                    name = "sso-coredns-custom";
-                    manifests = [ ./coredns-custom.yaml ];
-                    substitutions = {
-                      TRAEFIK_IP = serverConfig.traefikIP;
-                    };
-                  }}
-
                   # Restart CoreDNS to pick up custom config (with grace period)
                   echo "Restarting CoreDNS..."
                   $KUBECTL rollout restart deployment/coredns -n kube-system 2>/dev/null || true

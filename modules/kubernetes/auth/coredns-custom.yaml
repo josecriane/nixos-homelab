@@ -5,22 +5,22 @@ metadata:
   namespace: kube-system
 data:
   local-dns.server: |
-    __DOMAIN__:53 {
+    __SUBDOMAIN__.__DOMAIN__:53 {
       errors
       cache 30
-      template IN A __DOMAIN__ {
-        match "^(.+\.)?__DOMAIN__\.$"
+      template IN A __SUBDOMAIN__.__DOMAIN__ {
+        match "^(.+\.)?__SUBDOMAIN__\.__DOMAIN__\.$"
         answer "{{ .Name }} 60 IN A __TRAEFIK_IP__"
         fallthrough
       }
-      template IN AAAA __DOMAIN__ {
-        match "^(.+\.)?__DOMAIN__\.$"
+      template IN AAAA __SUBDOMAIN__.__DOMAIN__ {
+        match "^(.+\.)?__SUBDOMAIN__\.__DOMAIN__\.$"
         rcode NOERROR
         fallthrough
       }
       # Non-A/AAAA queries (SOA, TXT, CNAME) must reach upstream. Without this
       # the zone block has no resolver after the templates, so cert-manager's
-      # DNS-01 self-check (SOA of _acme-challenge.__DOMAIN__) gets SERVFAIL and
+      # DNS-01 self-check (SOA of _acme-challenge.__SUBDOMAIN__.__DOMAIN__) gets SERVFAIL and
       # certificate renewals hang until the cert expires.
       forward . /etc/resolv.conf
     }
