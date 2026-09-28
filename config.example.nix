@@ -46,6 +46,13 @@
     traefikDashboard = false;
   };
 
+  vaultwarden = {
+    # Mirrors the generated service credentials into a Vaultwarden
+    # collection. Turn it off if the bitwarden-cli in your nixpkgs is
+    # newer than the API your Vaultwarden release implements.
+    # sync = { enable = true; };
+  };
+
   authentik = {
     adminEmail = "admin@home.example.com";
     # ldap = { enable = false; };

@@ -52,6 +52,16 @@ in
         });
       };
 
+      vaultwarden = mkOption {
+        default = { };
+        type = freeform {
+          sync = mkOption {
+            default = { };
+            type = freeform { enable = bool defaults.vaultwarden.sync.enable; };
+          };
+        };
+      };
+
       authentik = mkOption {
         default = { };
         type = freeform {

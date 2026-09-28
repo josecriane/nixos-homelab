@@ -20,6 +20,10 @@
 
   nas = { };
 
+  vaultwarden = {
+    sync.enable = true;
+  };
+
   authentik = {
     ldap.enable = false;
     bootstrapUsers = { };

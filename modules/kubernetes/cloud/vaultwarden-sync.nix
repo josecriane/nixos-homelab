@@ -76,7 +76,7 @@ in
         $BW config server "$VW_URL" 2>/dev/null || true
 
         BW_SESSION=""
-        BW_SESSION=$($BW login "$VW_EMAIL" "$VW_PASSWORD" --raw 2>/dev/null) || true
+        BW_SESSION=$($BW login "$VW_EMAIL" "$VW_PASSWORD" --raw) || true
 
         if [ -z "$BW_SESSION" ] || echo "$BW_SESSION" | grep -qi "error\|failed\|invalid"; then
           echo "ERROR: Could not login to Vaultwarden"
