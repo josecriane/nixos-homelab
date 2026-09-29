@@ -46,6 +46,7 @@ in
 
   imports =
     lib.optionals authentikOn [
+      ./blueprint.nix
       ./authentik.nix
       ./sso.nix
     ]
