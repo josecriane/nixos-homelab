@@ -13,7 +13,7 @@ let
   ldapEnabled = config.homelab.authentik.ldap.enable;
 in
 {
-  homelab.dashboard.items.syncthing = {
+  dashboard.items.syncthing = {
     group = "cloud";
     title = "Syncthing";
     icon = "fas fa-sync";

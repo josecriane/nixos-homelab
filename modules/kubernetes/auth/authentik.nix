@@ -88,7 +88,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.authentik = {
+  dashboard.items.authentik = {
     group = "infrastructure";
     title = "Authentik";
     icon = "fas fa-shield-alt";

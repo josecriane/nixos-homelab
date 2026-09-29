@@ -1,5 +1,5 @@
 # Dashboard entries for services whose module lives in nixos-k8s, which does not
-# know about `homelab.dashboard`. They are declared here until the option moves
+# know about `dashboard`. They are declared here until the option moves
 # down a layer. Everything installed by this repo registers its own entry from
 # the module that installs it.
 {
@@ -19,7 +19,7 @@ let
   ping = namespace: name: { inherit namespace name; };
 in
 {
-  homelab.dashboard.items = {
+  dashboard.items = {
     traefik = {
       group = "infrastructure";
       title = "Traefik";
@@ -27,6 +27,14 @@ in
       subtitle = "Ingress Controller";
       url = "https://${k8s.hostname "traefik"}";
       sort = 10;
+    };
+    registry-ui = {
+      group = "infrastructure";
+      title = "Registry";
+      icon = "fas fa-box";
+      subtitle = "Container Images";
+      url = "https://${k8s.hostname "registry-ui"}";
+      sort = 45;
     };
   }
   // lib.optionalAttrs longhornEnabled {

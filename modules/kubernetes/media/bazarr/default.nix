@@ -29,7 +29,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.bazarr = {
+  dashboard.items.bazarr = {
     group = "downloads";
     title = "Bazarr";
     icon = "fas fa-closed-captioning";

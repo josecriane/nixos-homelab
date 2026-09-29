@@ -2,7 +2,7 @@
 # Replaces Homarr (~559MB) with a static dashboard (~10-20MB).
 # Declared via bjw-s/app-template Helm library chart. The dashboard's
 # config.yml is built from the entries each module registers in
-# `homelab.dashboard`, then embedded in a chart-managed ConfigMap and mounted
+# `dashboard`, then embedded in a chart-managed ConfigMap and mounted
 # into the container.
 {
   config,
@@ -20,7 +20,7 @@ let
   switchboardUrl = "https://${h "services"}";
   pingUrl = ns: name: "${switchboardUrl}/api/ping/${ns}/${name}";
 
-  dash = config.homelab.dashboard;
+  dash = config.dashboard;
 
   mkItem =
     item:

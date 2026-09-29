@@ -110,8 +110,50 @@ let
   ++ [
     "Applications must be configured in Authentik"
   ];
+
+  # One Cockpit and one File Browser entry per enabled NAS, so adding a NAS to
+  # config.nix is enough for it to show up.
+  dashboardItems = lib.listToAttrs (
+    lib.flatten (
+      lib.imap0 (
+        i: nasName:
+        let
+          nasCfg = enabledNAS.${nasName};
+          base = (i + 1) * 10;
+          filesHost = "files${lib.removePrefix "nas" (nasCfg.hostname or nasName)}";
+        in
+        [
+          {
+            name = "${nasName}-cockpit";
+            value = {
+              group = "storage";
+              title = "${nasName} Cockpit";
+              icon = "fas fa-server";
+              subtitle = nasCfg.description or "NAS";
+              url = "https://${k8s.hostname (nasCfg.hostname or nasName)}";
+              sort = base;
+            };
+          }
+          {
+            name = "${nasName}-files";
+            value = {
+              group = "storage";
+              title = "${nasName} Files";
+              icon = "fas fa-folder";
+              subtitle = "File Browser";
+              url = "https://${k8s.hostname filesHost}";
+              sort = base + 1;
+            };
+          }
+        ]
+      ) (builtins.attrNames enabledNAS)
+    )
+  );
+
 in
 lib.mkIf anyNasEnabled {
+  dashboard.items = dashboardItems;
+
   # Show migration warning if old format is detected
   warnings = lib.optional isOldFormat ''
     WARNING: Old NAS configuration format detected in config.nix

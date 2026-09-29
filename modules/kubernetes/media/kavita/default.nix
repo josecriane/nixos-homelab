@@ -30,7 +30,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.kavita = {
+  dashboard.items.kavita = {
     group = "media";
     title = "Kavita";
     icon = "fas fa-book-reader";

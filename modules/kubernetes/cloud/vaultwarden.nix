@@ -85,7 +85,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.vaultwarden = {
+  dashboard.items.vaultwarden = {
     group = "cloud";
     title = "Vaultwarden";
     icon = "fas fa-key";

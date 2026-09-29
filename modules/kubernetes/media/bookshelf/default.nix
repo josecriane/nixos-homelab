@@ -29,7 +29,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.bookshelf = {
+  dashboard.items.bookshelf = {
     group = "downloads";
     title = "Bookshelf";
     icon = "fas fa-book";

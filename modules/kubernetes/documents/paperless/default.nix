@@ -113,6 +113,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  dashboard.items.paperless = {
+    group = "documents";
+    title = "Paperless";
+    icon = "fas fa-file-alt";
+    subtitle = "Document Archive";
+    url = "https://${k8s.hostname "paperless"}";
+    sort = 10;
+  };
   sso.oidcApps = [
     {
       name = "Paperless";

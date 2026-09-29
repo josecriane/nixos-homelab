@@ -110,7 +110,7 @@ in
   };
 
   config = {
-    homelab.dashboard.items.switchboard = {
+    dashboard.items.switchboard = {
       group = "infrastructure";
       title = "Service Manager";
       icon = "fas fa-power-off";

@@ -146,7 +146,7 @@ let
         ]
         ++ extraAfter;
       };
-      homelab.dashboard.items = lib.optionalAttrs (dashboard != null) {
+      dashboard.items = lib.optionalAttrs (dashboard != null) {
         ${name} = {
           group = "downloads";
           title = dashboard.title;

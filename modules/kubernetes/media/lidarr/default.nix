@@ -30,7 +30,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.lidarr = {
+  dashboard.items.lidarr = {
     group = "downloads";
     title = "Lidarr";
     icon = "fas fa-music";

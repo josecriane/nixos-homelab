@@ -37,7 +37,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.kiwix = {
+  dashboard.items.kiwix = {
     group = "knowledge";
     title = "Kiwix";
     icon = "fab fa-wikipedia-w";

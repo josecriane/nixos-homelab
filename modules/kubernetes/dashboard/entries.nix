@@ -2,14 +2,14 @@
 #
 # The options are always available, whether or not homer is enabled, so a
 # module can register its entry without caring who renders it. homer reads
-# `homelab.dashboard` and renders nothing when a group has no active items.
+# `dashboard` and renders nothing when a group has no active items.
 { lib, ... }:
 
 let
   inherit (lib) mkOption types;
 in
 {
-  options.homelab.dashboard = {
+  options.dashboard = {
     groups = mkOption {
       description = "Groups of the dashboard, rendered in `sort` order.";
       default = { };
@@ -105,7 +105,7 @@ in
     };
   };
 
-  config.homelab.dashboard.groups = {
+  config.dashboard.groups = {
     cloud = {
       title = "Cloud";
       icon = "fas fa-cloud";
@@ -121,6 +121,11 @@ in
       icon = "fas fa-tasks";
       sort = 30;
     };
+    documents = {
+      title = "Documents";
+      icon = "fas fa-folder-open";
+      sort = 35;
+    };
     knowledge = {
       title = "Knowledge";
       icon = "fas fa-brain";
@@ -135,6 +140,11 @@ in
       title = "Infrastructure";
       icon = "fas fa-server";
       sort = 60;
+    };
+    storage = {
+      title = "Storage";
+      icon = "fas fa-hdd";
+      sort = 70;
     };
   };
 }

@@ -226,7 +226,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.nextcloud = {
+  dashboard.items.nextcloud = {
     group = "cloud";
     title = "Nextcloud";
     icon = "fas fa-cloud";

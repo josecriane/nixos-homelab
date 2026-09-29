@@ -85,7 +85,7 @@ let
   '';
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.jellyfin = {
+  dashboard.items.jellyfin = {
     group = "media";
     title = "Jellyfin";
     icon = "fas fa-film";

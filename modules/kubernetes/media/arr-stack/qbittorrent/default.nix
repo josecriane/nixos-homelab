@@ -31,7 +31,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.qbittorrent = {
+  dashboard.items.qbittorrent = {
     group = "downloads";
     title = "qBittorrent";
     icon = "fas fa-download";

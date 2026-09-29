@@ -19,7 +19,7 @@ let
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.immich}" else null;
 in
 {
-  homelab.dashboard.items.immich = {
+  dashboard.items.immich = {
     group = "cloud";
     title = "Immich";
     icon = "fas fa-images";

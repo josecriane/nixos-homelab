@@ -65,6 +65,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  dashboard.items.stirling-pdf = {
+    group = "documents";
+    title = "Stirling PDF";
+    icon = "fas fa-file-pdf";
+    subtitle = "PDF Tools";
+    url = "https://${k8s.hostname "pdf"}";
+    sort = 20;
+  };
   sso.oidcApps = [
     {
       name = "Stirling PDF";

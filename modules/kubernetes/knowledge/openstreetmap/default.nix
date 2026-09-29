@@ -142,7 +142,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.openstreetmap = {
+  dashboard.items.openstreetmap = {
     group = "knowledge";
     title = "OpenStreetMap";
     icon = "fas fa-map-marked-alt";

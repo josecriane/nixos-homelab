@@ -33,7 +33,7 @@ let
   };
 in
 lib.recursiveUpdate release {
-  homelab.dashboard.items.jellyseerr = {
+  dashboard.items.jellyseerr = {
     group = "media";
     title = "Jellyseerr";
     icon = "fas fa-search";
