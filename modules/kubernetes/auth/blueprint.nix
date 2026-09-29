@@ -42,11 +42,14 @@ let
   outpostName = "authentik Embedded Outpost";
 
   groups = [
-    "admins"
-    "media-admins"
-    "media-users"
-    "family"
-    "monitoring"
+    {
+      name = "admins";
+      superuser = true;
+    }
+    { name = "media-admins"; }
+    { name = "media-users"; }
+    { name = "family"; }
+    { name = "monitoring"; }
   ];
 
   # Forward-auth apps this repo installs. The arr stack skips /api so external
@@ -132,12 +135,17 @@ let
 
   extraApps = serverConfig.authentik.forwardAuthApps or [ ];
 
-  # Same shape, different naming: the NAS entries predate the convention and
-  # their provider is "<app> Provider" with the app slug carrying no -fwd.
-  nasConfig = config.homelab.nas;
-  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled or false) (
-    if nasConfig ? ip then { } else nasConfig
-  );
+  rawNas = config.homelab.nas;
+  nasConfig =
+    if rawNas ? ip then
+      {
+        nas1 = rawNas // {
+          hostname = "nas";
+        };
+      }
+    else
+      rawNas;
+  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled or false) nasConfig;
 
   nasLabel =
     nasName:
@@ -210,11 +218,14 @@ let
     ++ pad 4 attrs;
 
   groupLines = lib.concatMap (
-    name:
+    group:
     mkEntry {
       model = "authentik_core.group";
-      identifiers.lines = [ "name: ${quote name}" ];
-      attrs = [ "name: ${quote name}" ];
+      identifiers.lines = [ "name: ${quote group.name}" ];
+      attrs = [
+        "name: ${quote group.name}"
+        "is_superuser: ${if group.superuser or false then "true" else "false"}"
+      ];
     }
   ) groups;
 

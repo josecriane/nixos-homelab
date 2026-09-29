@@ -11,7 +11,7 @@
         "authentik-setup-done"
         "authentik-sso-setup-done"
         "authentik-ldap-done"
-        "authentik-nas-apps-done"
+        "authentik-blueprint-setup-done"
       ];
       extraCleanup = ''
         echo "Cleaning authentik cross-namespace resources..."

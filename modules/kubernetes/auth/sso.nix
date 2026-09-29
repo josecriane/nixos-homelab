@@ -286,29 +286,6 @@ in
                 fi
 
                 # ============================================
-                # CREATE GROUPS
-                # ============================================
-                for group_name in admins media-admins media-users family monitoring; do
-                  EXISTING=$($CURL -s "$API/core/groups/?name=$group_name" -H "$AUTH" | $JQ -r '.pagination.count')
-                  if [ "$EXISTING" = "0" ]; then
-                    IS_SUPER="false"
-                    [ "$group_name" = "admins" ] && IS_SUPER="true"
-                    $CURL -s -X POST "$API/core/groups/" -H "$AUTH" -H "Content-Type: application/json" \
-                      -d "{\"name\":\"$group_name\",\"is_superuser\":$IS_SUPER}" > /dev/null
-                    echo "Group $group_name: created (superuser=$IS_SUPER)"
-                  else
-                    if [ "$group_name" = "admins" ]; then
-                      GRP_PK=$($CURL -s "$API/core/groups/?name=admins" -H "$AUTH" | $JQ -r '.results[0].pk // empty')
-                      if [ -n "$GRP_PK" ]; then
-                        $CURL -s -X PATCH "$API/core/groups/$GRP_PK/" -H "$AUTH" -H "Content-Type: application/json" \
-                          -d '{"is_superuser":true}' > /dev/null
-                      fi
-                    fi
-                    echo "Group $group_name: exists"
-                  fi
-                done
-
-                # ============================================
                 # CREATE OIDC PROVIDERS AND APPLICATIONS
                 # ============================================
 
@@ -477,7 +454,7 @@ in
                 echo ""
                 echo "Creating ForwardAuth proxy providers..."
 
-                # Get or create proxy outpost (reused by nas-apps if it runs later)
+                # Get or create the proxy outpost. The blueprint owns its provider list.
                 OUTPOST_PK=$($CURL -s "$API/outposts/instances/?type=proxy" -H "$AUTH" | $JQ -r '.results[0].pk // empty')
                 if [ -z "$OUTPOST_PK" ]; then
                   echo "Creating proxy outpost..."
@@ -509,115 +486,6 @@ in
                       -d "{\"config\": {\"authentik_host\": \"https://$(hostname auth)/\"}}" > /dev/null
                   fi
                 fi
-
-                FWD_PROVIDER_PKS=""
-
-                create_forward_auth_app() {
-                  local APP_NAME="$1"
-                  local SLUG="$2"
-                  local EXTERNAL_HOST="$3"
-                  local SKIP_PATH="''${4:-}"
-
-                  SEARCH_QUERY=$(echo "$APP_NAME Forward Auth" | sed 's/ /+/g')
-                  PROVIDER_PK=$($CURL -s "$API/providers/proxy/?search=$SEARCH_QUERY" -H "$AUTH" | $JQ -r '.results[0].pk // empty')
-
-                  if [ -z "$PROVIDER_PK" ]; then
-                    SKIP_FIELD=""
-                    if [ -n "$SKIP_PATH" ]; then
-                      SKIP_FIELD=",\"skip_path_regex\": \"$SKIP_PATH\""
-                    fi
-                    PROVIDER_RESPONSE=$($CURL -s -X POST "$API/providers/proxy/" -H "$AUTH" -H "Content-Type: application/json" \
-                      -d "{
-                        \"name\": \"$APP_NAME Forward Auth\",
-                        \"authorization_flow\": \"$AUTH_FLOW_PK\",
-                        \"invalidation_flow\": \"$INVALIDATION_FLOW_PK\",
-                        \"mode\": \"forward_single\",
-                        \"external_host\": \"$EXTERNAL_HOST\",
-                        \"certificate\": \"$SIGNING_KEY_PK\",
-                        \"access_token_validity\": \"hours=1\"
-                        $SKIP_FIELD
-                      }")
-                    PROVIDER_PK=$(echo "$PROVIDER_RESPONSE" | $JQ -r '.pk // empty')
-                    if [ -n "$PROVIDER_PK" ]; then
-                      echo "  $APP_NAME: provider created"
-                    else
-                      echo "  WARN: $APP_NAME provider failed"
-                      return 0
-                    fi
-                  else
-                    echo "  $APP_NAME: provider exists"
-                  fi
-
-                  if [ -n "$PROVIDER_PK" ]; then
-                    FWD_PROVIDER_PKS="$FWD_PROVIDER_PKS $PROVIDER_PK"
-                  fi
-
-                  # Create application
-                  APP_EXISTS=$($CURL -s "$API/core/applications/?slug=$SLUG-fwd" -H "$AUTH" | $JQ -r '.pagination.count')
-                  if [ "$APP_EXISTS" = "0" ]; then
-                    $CURL -s -X POST "$API/core/applications/" -H "$AUTH" -H "Content-Type: application/json" \
-                      -d "{
-                        \"name\": \"$APP_NAME (ForwardAuth)\",
-                        \"slug\": \"$SLUG-fwd\",
-                        \"provider\": $PROVIDER_PK,
-                        \"meta_launch_url\": \"$EXTERNAL_HOST\"
-                      }" > /dev/null
-                    echo "  $APP_NAME: app created"
-                  else
-                    echo "  $APP_NAME: app exists"
-                  fi
-                }
-
-                sync_outpost_providers() {
-                  [ -n "$OUTPOST_PK" ] || return 0
-                  [ -n "$FWD_PROVIDER_PKS" ] || return 0
-
-                  CURRENT_PROVIDERS=$($CURL -s "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" | $JQ -r '[.providers[]] | map(tostring) | join(" ")')
-
-                  MISSING=""
-                  for PK in $FWD_PROVIDER_PKS; do
-                    case " $CURRENT_PROVIDERS $MISSING " in
-                      *" $PK "*) ;;
-                      *) MISSING="$MISSING $PK" ;;
-                    esac
-                  done
-
-                  if [ -z "$MISSING" ]; then
-                    echo "  outpost: every provider already assigned"
-                    return 0
-                  fi
-
-                  ALL_PROVIDERS=$($JQ -n '[$ARGS.positional[] | tonumber] | unique' --args $CURRENT_PROVIDERS $MISSING)
-                  $CURL -s -X PATCH "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" -H "Content-Type: application/json" \
-                    -d "{\"providers\": $ALL_PROVIDERS}" > /dev/null
-                  echo "  outpost: assigned$MISSING"
-                }
-
-                # Arr-stack services (API bypass for external app clients)
-                create_forward_auth_app "Sonarr" "sonarr" "https://$(hostname sonarr)" "^/api.*"
-                create_forward_auth_app "Sonarr ES" "sonarr-es" "https://$(hostname sonarr-es)" "^/api.*"
-                create_forward_auth_app "Radarr" "radarr" "https://$(hostname radarr)" "^/api.*"
-                create_forward_auth_app "Radarr ES" "radarr-es" "https://$(hostname radarr-es)" "^/api.*"
-                create_forward_auth_app "Prowlarr" "prowlarr" "https://$(hostname prowlarr)" "^/api.*"
-                create_forward_auth_app "qBittorrent" "qbittorrent" "https://$(hostname qbit)" "^/api.*"
-                create_forward_auth_app "Bazarr" "bazarr" "https://$(hostname bazarr)" "^/api.*"
-                create_forward_auth_app "Lidarr" "lidarr" "https://$(hostname lidarr)" "^/api.*"
-                create_forward_auth_app "Bookshelf" "bookshelf" "https://$(hostname books)" "^/api.*"
-
-                # Monitoring services (protect all paths)
-                create_forward_auth_app "Prometheus" "prometheus" "https://$(hostname prometheus)"
-                create_forward_auth_app "Alertmanager" "alertmanager" "https://$(hostname alertmanager)"
-
-                # Infrastructure dashboards
-                create_forward_auth_app "Traefik" "traefik" "https://$(hostname traefik)"
-                create_forward_auth_app "Longhorn" "longhorn" "https://$(hostname longhorn)"
-
-                ${lib.concatMapStringsSep "\n                " (
-                  app:
-                  ''create_forward_auth_app "${app.name}" "${app.slug}" "https://$(hostname ${app.host})" "${app.skipPath or ""}"''
-                ) (serverConfig.authentik.forwardAuthApps or [ ])}
-
-                sync_outpost_providers
 
                 # ============================================
                 # SAVE CREDENTIALS
@@ -655,7 +523,7 @@ in
                 print_success "Authentik SSO" \
                   "OIDC providers created for: Grafana, Nextcloud, Jellyfin, Jellyseerr, Immich, Vaultwarden, Kavita" \
                   "Credentials stored in K8s secret authentik-sso-credentials (traefik-system + copied to namespaces)" \
-                  "Groups: admins, media-admins, media-users, family, monitoring"
+                  "Groups, forward-auth providers and the outpost provider list live in the authentik blueprint"
 
                 create_marker "${markerFile}"
       '';
