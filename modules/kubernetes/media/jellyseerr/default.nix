@@ -33,6 +33,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.jellyseerr = {
+    group = "media";
+    title = "Jellyseerr";
+    icon = "fas fa-search";
+    subtitle = "Media Requests";
+    url = "https://${k8s.hostname "requests"}";
+    sort = 20;
+  };
   systemd.services.jellyseerr-setup = {
     after = (release.systemd.services.jellyseerr-setup.after or [ ]) ++ [
       "nfs-storage-setup.service"

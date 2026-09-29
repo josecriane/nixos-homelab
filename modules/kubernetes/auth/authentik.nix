@@ -88,6 +88,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.authentik = {
+    group = "infrastructure";
+    title = "Authentik";
+    icon = "fas fa-shield-alt";
+    subtitle = "SSO/Identity";
+    url = "https://${k8s.hostname "auth"}";
+    sort = 20;
+  };
   age.secrets.authentik-admin-password = {
     file = "${secretsPath}/authentik-admin-password.age";
   };

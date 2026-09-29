@@ -19,6 +19,14 @@ let
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.immich}" else null;
 in
 {
+  homelab.dashboard.items.immich = {
+    group = "cloud";
+    title = "Immich";
+    icon = "fas fa-images";
+    subtitle = "Photo Backup";
+    url = "https://${k8s.hostname "photos"}";
+    sort = 30;
+  };
   systemd.services.immich-setup = {
     description = "Setup Immich photo management";
     after = [ "k3s-core.target" ];

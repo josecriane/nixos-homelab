@@ -31,6 +31,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.qbittorrent = {
+    group = "downloads";
+    title = "qBittorrent";
+    icon = "fas fa-download";
+    subtitle = "Downloads";
+    url = "https://${k8s.hostname "qbit"}";
+    sort = 80;
+  };
   systemd.services.qbittorrent-setup = {
     after = (release.systemd.services.qbittorrent-setup.after or [ ]) ++ [
       "nfs-storage-setup.service"

@@ -142,6 +142,18 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.openstreetmap = {
+    group = "knowledge";
+    title = "OpenStreetMap";
+    icon = "fas fa-map-marked-alt";
+    subtitle = "Offline Maps";
+    url = "https://${k8s.hostname "maps"}";
+    ping = {
+      namespace = "openstreetmap";
+      name = "openstreetmap";
+    };
+    sort = 20;
+  };
   systemd.services.openstreetmap-setup = {
     after = (release.systemd.services.openstreetmap-setup.after or [ ]) ++ [
       "nfs-storage-setup.service"

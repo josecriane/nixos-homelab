@@ -37,6 +37,18 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.kiwix = {
+    group = "knowledge";
+    title = "Kiwix";
+    icon = "fab fa-wikipedia-w";
+    subtitle = "Offline Knowledge";
+    url = "https://${k8s.hostname "wiki"}";
+    ping = {
+      namespace = "kiwix";
+      name = "kiwix-serve";
+    };
+    sort = 10;
+  };
   systemd.services.kiwix-serve-setup = {
     after = (release.systemd.services.kiwix-serve-setup.after or [ ]) ++ [
       "nfs-storage-cloud-setup.service"

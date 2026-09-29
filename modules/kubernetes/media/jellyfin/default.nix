@@ -85,6 +85,14 @@ let
   '';
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.jellyfin = {
+    group = "media";
+    title = "Jellyfin";
+    icon = "fas fa-film";
+    subtitle = "Media Server";
+    url = "https://${k8s.hostname "jellyfin"}";
+    sort = 10;
+  };
   systemd.services.jellyfin-setup = {
     after = (release.systemd.services.jellyfin-setup.after or [ ]) ++ [
       "nfs-storage-setup.service"

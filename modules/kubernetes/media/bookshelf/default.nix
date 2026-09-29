@@ -29,6 +29,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.bookshelf = {
+    group = "downloads";
+    title = "Bookshelf";
+    icon = "fas fa-book";
+    subtitle = "Ebooks";
+    url = "https://${k8s.hostname "books"}";
+    sort = 90;
+  };
   systemd.services.bookshelf-setup = {
     after = (release.systemd.services.bookshelf-setup.after or [ ]) ++ [
       "arr-secrets-setup.service"

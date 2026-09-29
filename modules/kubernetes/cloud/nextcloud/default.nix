@@ -226,6 +226,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.nextcloud = {
+    group = "cloud";
+    title = "Nextcloud";
+    icon = "fas fa-cloud";
+    subtitle = "Cloud Storage";
+    url = "https://${k8s.hostname "cloud"}";
+    sort = 20;
+  };
 
   # OIDC configuration service
   systemd.services.nextcloud-oidc-setup = {

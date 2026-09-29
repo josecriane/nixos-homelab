@@ -17,4 +17,10 @@ helpers.mkArrRelease {
   configPvc = "prowlarr-config";
   apiKeySecret = "prowlarr-api-key";
   withSharedData = false;
+  dashboard = {
+    title = "Prowlarr";
+    icon = "fas fa-search-plus";
+    subtitle = "Indexers";
+    sort = 70;
+  };
 }

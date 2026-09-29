@@ -18,4 +18,10 @@ helpers.mkArrRelease {
   apiKeySecret = "sonarr-api-key";
   memReq = "256Mi";
   memLim = "2Gi";
+  dashboard = {
+    title = "Sonarr";
+    icon = "fas fa-tv";
+    subtitle = "TV Shows";
+    sort = 10;
+  };
 }

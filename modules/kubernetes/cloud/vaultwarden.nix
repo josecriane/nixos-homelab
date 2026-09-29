@@ -85,6 +85,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.vaultwarden = {
+    group = "cloud";
+    title = "Vaultwarden";
+    icon = "fas fa-key";
+    subtitle = "Password Manager";
+    url = "https://${k8s.hostname "vault"}";
+    sort = 10;
+  };
   systemd.services.vaultwarden-sso-setup = {
     description = "Re-apply Vaultwarden once its SSO credentials exist";
     after = [

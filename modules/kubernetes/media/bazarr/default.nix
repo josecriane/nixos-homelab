@@ -29,6 +29,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.bazarr = {
+    group = "downloads";
+    title = "Bazarr";
+    icon = "fas fa-closed-captioning";
+    subtitle = "Subtitles";
+    url = "https://${k8s.hostname "bazarr"}";
+    sort = 60;
+  };
   systemd.services.bazarr-setup = {
     after = (release.systemd.services.bazarr-setup.after or [ ]) ++ [
       "arr-stack-setup.service"

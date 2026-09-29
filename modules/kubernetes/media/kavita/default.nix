@@ -30,6 +30,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.kavita = {
+    group = "media";
+    title = "Kavita";
+    icon = "fas fa-book-reader";
+    subtitle = "Manga/Comics";
+    url = "https://${k8s.hostname "kavita"}";
+    sort = 30;
+  };
   systemd.services.kavita-setup = {
     after = (release.systemd.services.kavita-setup.after or [ ]) ++ [
       "nfs-storage-setup.service"

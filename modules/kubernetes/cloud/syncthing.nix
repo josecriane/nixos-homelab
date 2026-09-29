@@ -13,6 +13,14 @@ let
   ldapEnabled = config.homelab.authentik.ldap.enable;
 in
 {
+  homelab.dashboard.items.syncthing = {
+    group = "cloud";
+    title = "Syncthing";
+    icon = "fas fa-sync";
+    subtitle = "File Sync";
+    url = "https://${k8s.hostname "sync"}";
+    sort = 40;
+  };
   systemd.services.syncthing-setup = {
     description = "Setup Syncthing file synchronization";
     after = [ "k3s-core.target" ] ++ lib.optional ldapEnabled "authentik-ldap-setup.service";

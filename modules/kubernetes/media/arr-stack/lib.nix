@@ -37,6 +37,7 @@ let
       cpuReq ? "50m",
       memReq ? "128Mi",
       memLim ? "512Mi",
+      dashboard ? null,
       extraAfter ? [ ],
     }:
     let
@@ -144,6 +145,17 @@ let
           "nfs-storage-setup.service"
         ]
         ++ extraAfter;
+      };
+      homelab.dashboard.items = lib.optionalAttrs (dashboard != null) {
+        ${name} = {
+          group = "downloads";
+          title = dashboard.title;
+          icon = dashboard.icon;
+          subtitle = dashboard.subtitle;
+          url = "https://${k8s.hostname ingressHost}";
+          tag = dashboard.tag or null;
+          sort = dashboard.sort or 100;
+        };
       };
     };
 in

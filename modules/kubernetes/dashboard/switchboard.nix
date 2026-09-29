@@ -110,6 +110,15 @@ in
   };
 
   config = {
+    homelab.dashboard.items.switchboard = {
+      group = "infrastructure";
+      title = "Service Manager";
+      icon = "fas fa-power-off";
+      subtitle = "Start/Stop Services";
+      url = "https://${k8s.hostname "services"}";
+      sort = 30;
+    };
+
     k8s.apps.switchboard = {
       hostname = "services";
       groupNames = {

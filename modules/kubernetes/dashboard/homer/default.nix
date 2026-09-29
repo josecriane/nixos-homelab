@@ -1,8 +1,9 @@
 # Homer - Lightweight dashboard
 # Replaces Homarr (~559MB) with a static dashboard (~10-20MB).
 # Declared via bjw-s/app-template Helm library chart. The dashboard's
-# config.yml is built from serverConfig.services and hostnames, then embedded
-# in a chart-managed ConfigMap and mounted into the container.
+# config.yml is built from the entries each module registers in
+# `homelab.dashboard`, then embedded in a chart-managed ConfigMap and mounted
+# into the container.
 {
   config,
   k8s,
@@ -14,253 +15,43 @@
 
 let
 
-  svc = config.homelab.services;
-  enabled = name: svc.${name} or false;
   h = k8s.hostname;
 
   switchboardUrl = "https://${h "services"}";
   pingUrl = ns: name: "${switchboardUrl}/api/ping/${ns}/${name}";
 
+  dash = config.homelab.dashboard;
+
   mkItem =
-    {
-      name,
-      icon,
-      subtitle,
-      url,
-      tag ? null,
-      type ? null,
-      apiurl ? null,
-    }:
-    "      - name: \"${name}\"\n        icon: \"${icon}\"\n        subtitle: \"${subtitle}\"\n        url: \"${url}\"\n        target: \"_blank\""
-    + lib.optionalString (tag != null) "\n        tag: \"${tag}\""
-    + lib.optionalString (type != null) "\n        type: \"${type}\""
-    + lib.optionalString (apiurl != null) "\n        apiurl: \"${apiurl}\"";
-
-  joinItems = items: lib.concatStringsSep "\n" (lib.filter (x: x != "") items);
-
-  mkGroup =
-    name: icon: items:
-    let
-      activeItems = lib.filter (x: x != "") items;
-    in
-    lib.optionalString (activeItems != [ ]) (
-      "  - name: \"${name}\"\n    icon: \"${icon}\"\n    items:\n" + joinItems activeItems
+    item:
+    "      - name: \"${item.title}\"\n        icon: \"${item.icon}\"\n        subtitle: \"${item.subtitle}\"\n        url: \"${item.url}\"\n        target: \"_blank\""
+    + lib.optionalString (item.tag != null) "\n        tag: \"${item.tag}\""
+    + lib.optionalString (item.ping != null) (
+      "\n        type: \"Ping\"\n        apiurl: \"${pingUrl item.ping.namespace item.ping.name}\""
     );
 
-  cloudGroup = mkGroup "Cloud" "fas fa-cloud" (
-    lib.optional (enabled "vaultwarden") (mkItem {
-      name = "Vaultwarden";
-      icon = "fas fa-key";
-      subtitle = "Password Manager";
-      url = "https://${h "vault"}";
-    })
-    ++ lib.optional (enabled "nextcloud") (mkItem {
-      name = "Nextcloud";
-      icon = "fas fa-cloud";
-      subtitle = "Cloud Storage";
-      url = "https://${h "cloud"}";
-    })
-    ++ lib.optional (enabled "immich") (mkItem {
-      name = "Immich";
-      icon = "fas fa-images";
-      subtitle = "Photo Backup";
-      url = "https://${h "photos"}";
-    })
-    ++ lib.optional (enabled "syncthing") (mkItem {
-      name = "Syncthing";
-      icon = "fas fa-sync";
-      subtitle = "File Sync";
-      url = "https://${h "sync"}";
-    })
-  );
+  itemsOf =
+    key:
+    lib.sort (a: b: if a.sort != b.sort then a.sort < b.sort else a.title < b.title) (
+      lib.filter (i: i.enable && i.group == key) (lib.attrValues dash.items)
+    );
 
-  mediaGroup = mkGroup "Media" "fas fa-play-circle" (
-    lib.optionals (enabled "media") [
-      (mkItem {
-        name = "Jellyfin";
-        icon = "fas fa-film";
-        subtitle = "Media Server";
-        url = "https://${h "jellyfin"}";
-      })
-      (mkItem {
-        name = "Jellyseerr";
-        icon = "fas fa-search";
-        subtitle = "Media Requests";
-        url = "https://${h "requests"}";
-      })
-      (mkItem {
-        name = "Kavita";
-        icon = "fas fa-book-reader";
-        subtitle = "Manga/Comics";
-        url = "https://${h "kavita"}";
-      })
-    ]
-  );
+  renderGroup =
+    key: group:
+    let
+      items = itemsOf key;
+    in
+    lib.optionalString (items != [ ]) (
+      "  - name: \"${group.title}\"\n    icon: \"${group.icon}\"\n    items:\n"
+      + lib.concatStringsSep "\n" (map mkItem items)
+    );
 
-  downloadsGroup = mkGroup "Downloads & Management" "fas fa-tasks" (
-    lib.optionals (enabled "media") [
-      (mkItem {
-        name = "Sonarr";
-        icon = "fas fa-tv";
-        subtitle = "TV Shows";
-        url = "https://${h "sonarr"}";
-      })
-      (mkItem {
-        name = "Sonarr ES";
-        icon = "fas fa-tv";
-        subtitle = "Series (ES)";
-        url = "https://${h "sonarr-es"}";
-        tag = "ES";
-      })
-      (mkItem {
-        name = "Radarr";
-        icon = "fas fa-video";
-        subtitle = "Movies";
-        url = "https://${h "radarr"}";
-      })
-      (mkItem {
-        name = "Radarr ES";
-        icon = "fas fa-video";
-        subtitle = "Movies (ES)";
-        url = "https://${h "radarr-es"}";
-        tag = "ES";
-      })
-      (mkItem {
-        name = "Lidarr";
-        icon = "fas fa-music";
-        subtitle = "Music";
-        url = "https://${h "lidarr"}";
-      })
-      (mkItem {
-        name = "Bazarr";
-        icon = "fas fa-closed-captioning";
-        subtitle = "Subtitles";
-        url = "https://${h "bazarr"}";
-      })
-      (mkItem {
-        name = "Prowlarr";
-        icon = "fas fa-search-plus";
-        subtitle = "Indexers";
-        url = "https://${h "prowlarr"}";
-      })
-      (mkItem {
-        name = "qBittorrent";
-        icon = "fas fa-download";
-        subtitle = "Downloads";
-        url = "https://${h "qbit"}";
-      })
-      (mkItem {
-        name = "Bookshelf";
-        icon = "fas fa-book";
-        subtitle = "Ebooks";
-        url = "https://${h "books"}";
-      })
-      (mkItem {
-        name = "Kitsunarr";
-        icon = "fas fa-paw";
-        subtitle = "Anime Management";
-        url = "https://${h "kitsunarr"}";
-      })
-    ]
-  );
-
-  knowledgeGroup = mkGroup "Knowledge" "fas fa-brain" (
-    lib.optional (enabled "kiwix") (mkItem {
-      name = "Kiwix";
-      icon = "fab fa-wikipedia-w";
-      subtitle = "Offline Knowledge";
-      url = "https://${h "wiki"}";
-      type = "Ping";
-      apiurl = pingUrl "kiwix" "kiwix-serve";
-    })
-    ++ lib.optional (enabled "openstreetmap") (mkItem {
-      name = "OpenStreetMap";
-      icon = "fas fa-map-marked-alt";
-      subtitle = "Offline Maps";
-      url = "https://${h "maps"}";
-      type = "Ping";
-      apiurl = pingUrl "openstreetmap" "openstreetmap";
-    })
-  );
-
-  monitoringGroup = mkGroup "Monitoring" "fas fa-chart-line" (
-    lib.optionals (enabled "monitoring") [
-      (mkItem {
-        name = "Grafana";
-        icon = "fas fa-chart-area";
-        subtitle = "Dashboards";
-        url = "https://${h "grafana"}";
-        type = "Ping";
-        apiurl = pingUrl "monitoring" "grafana";
-      })
-      (mkItem {
-        name = "Prometheus";
-        icon = "fas fa-database";
-        subtitle = "Metrics";
-        url = "https://${h "prometheus"}";
-        type = "Ping";
-        apiurl = pingUrl "monitoring" "prometheus-server";
-      })
-      (mkItem {
-        name = "Alertmanager";
-        icon = "fas fa-bell";
-        subtitle = "Alerts";
-        url = "https://${h "alertmanager"}";
-        type = "Ping";
-        apiurl = pingUrl "monitoring" "alertmanager";
-      })
-    ]
-  );
-
-  longhornCfg = serverConfig.storage.longhorn;
-  longhornEnabled = (longhornCfg.enable or false) && ((longhornCfg.ingress or null) != null);
-
-  infraGroup = mkGroup "Infrastructure" "fas fa-server" (
-    [
-      (mkItem {
-        name = "Traefik";
-        icon = "fas fa-route";
-        subtitle = "Ingress Controller";
-        url = "https://${h "traefik"}";
-      })
-    ]
-    ++ lib.optional (enabled "authentik") (mkItem {
-      name = "Authentik";
-      icon = "fas fa-shield-alt";
-      subtitle = "SSO/Identity";
-      url = "https://${h "auth"}";
-    })
-    ++ lib.optional (enabled "dashboard") (mkItem {
-      name = "Service Manager";
-      icon = "fas fa-power-off";
-      subtitle = "Start/Stop Services";
-      url = "https://${h "services"}";
-    })
-    ++ lib.optional longhornEnabled (mkItem {
-      name = "Longhorn";
-      icon = "fas fa-hdd";
-      subtitle = "Distributed Storage";
-      url = "https://${h longhornCfg.ingress.host}";
-    })
-    ++ [
-      (mkItem {
-        name = "Omada Controller";
-        icon = "fas fa-wifi";
-        subtitle = "Network Management";
-        url = "https://${h "omada"}";
-      })
-    ]
+  sortedGroups = lib.sort (a: b: a.value.sort < b.value.sort) (
+    lib.mapAttrsToList (name: value: { inherit name value; }) dash.groups
   );
 
   allGroups = lib.concatStringsSep "\n" (
-    lib.filter (x: x != "") [
-      cloudGroup
-      mediaGroup
-      downloadsGroup
-      knowledgeGroup
-      monitoringGroup
-      infraGroup
-    ]
+    lib.filter (x: x != "") (map (g: renderGroup g.name g.value) sortedGroups)
   );
 
   homerConfigYaml = ''

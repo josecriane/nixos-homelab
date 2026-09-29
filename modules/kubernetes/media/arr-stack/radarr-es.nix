@@ -18,4 +18,11 @@ helpers.mkArrRelease {
   apiKeySecret = "radarr-es-api-key";
   memReq = "256Mi";
   memLim = "2Gi";
+  dashboard = {
+    title = "Radarr ES";
+    icon = "fas fa-video";
+    subtitle = "Movies (ES)";
+    tag = "ES";
+    sort = 40;
+  };
 }

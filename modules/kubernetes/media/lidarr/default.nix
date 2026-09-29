@@ -30,6 +30,14 @@ let
   };
 in
 lib.recursiveUpdate release {
+  homelab.dashboard.items.lidarr = {
+    group = "downloads";
+    title = "Lidarr";
+    icon = "fas fa-music";
+    subtitle = "Music";
+    url = "https://${k8s.hostname "lidarr"}";
+    sort = 50;
+  };
   systemd.services.lidarr-setup = {
     after = (release.systemd.services.lidarr-setup.after or [ ]) ++ [
       "arr-secrets-setup.service"
