@@ -1,29 +1,112 @@
 {
   k8s,
-  config,
   lib,
   pkgs,
   ...
 }:
 
 let
-  ns = "media";
+  arr = import ./arr-lib.nix { inherit lib; };
   markerFile = "/var/lib/lidarr-config-setup-done";
-  curl = "curl";
+
+  namingFilter = ''
+    .renameTracks = true |
+    .replaceIllegalCharacters = true |
+    .standardTrackFormat = "{Album Title} {(Album Disambiguation)}/{Artist Name}_{Album Title}_{track:00}_{Track Title}" |
+    .multiDiscTrackFormat = "{Album Title} {(Album Disambiguation)}/{Artist Name}_{Album Title}_{medium:00}-{track:00}_{Track Title}" |
+    .artistFolderFormat = "{Artist Name}"
+  '';
+
+  mgmtFilter = ".copyUsingHardlinks = true";
+
+  qualityDefsFilter = ''
+    [.[] |
+      if .quality.name == "FLAC" then
+        .minSize = 0 | .preferredSize = 895 | .maxSize = 1400
+      elif .quality.name == "FLAC 24bit" then
+        .minSize = 0 | .preferredSize = 895 | .maxSize = 1495
+      else . end
+    ]
+  '';
+
+  customFormats = [
+    {
+      name = "Preferred Groups";
+      specs = [
+        { name = "DeVOiD"; }
+        { name = "PERFECT"; }
+        { name = "ENRiCH"; }
+      ];
+    }
+    {
+      name = "CD";
+      specs = [ { name = "CD"; } ];
+    }
+    {
+      name = "WEB";
+      specs = [ { name = "WEB"; } ];
+    }
+    {
+      name = "Lossless";
+      specs = [ { name = "FLAC"; } ];
+    }
+    {
+      name = "Vinyl";
+      specs = [ { name = "Vinyl"; } ];
+    }
+  ];
+
+  mkSpec = spec: {
+    name = spec.name;
+    implementation = "ReleaseTitleSpecification";
+    negate = false;
+    required = false;
+    fields.value = spec.pattern or "\\b${spec.name}\\b";
+  };
+
+  mkCustomFormat = cf: {
+    name = cf.name;
+    includeCustomFormatWhenRenaming = false;
+    specifications = map mkSpec cf.specs;
+  };
+
+  ensureFormat =
+    cf:
+    "arr_ensure lidarr customformat ${lib.escapeShellArg (builtins.toJSON (mkCustomFormat cf))} "
+    + "${lib.escapeShellArg ''.[] | select(.name == "${cf.name}")''} ${lib.escapeShellArg "CF ${cf.name}"}";
+
+  formatScores = [
+    {
+      name = "Preferred Groups";
+      score = 10;
+    }
+    {
+      name = "CD";
+      score = 5;
+    }
+    {
+      name = "WEB";
+      score = 3;
+    }
+    {
+      name = "Lossless";
+      score = 5;
+    }
+    {
+      name = "Vinyl";
+      score = -10;
+    }
+  ];
 in
 {
   systemd.services.lidarr-config-setup = {
-    description = "Configure Lidarr quality profiles and naming (Davo's Guide)";
+    description = "Configure Lidarr naming, quality and custom formats";
     after = [
       "k3s-apps.target"
       "arr-credentials-setup.service"
-      "arr-root-folders-setup.service"
     ];
     requires = [ "k3s-apps.target" ];
-    wants = [
-      "arr-credentials-setup.service"
-      "arr-root-folders-setup.service"
-    ];
+    wants = [ "arr-credentials-setup.service" ];
     wantedBy = [ "k3s-extras.target" ];
     before = [ "k3s-extras.target" ];
 
@@ -35,206 +118,42 @@ in
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         set +e
 
-        MARKER_FILE="${markerFile}"
-        if [ -f "$MARKER_FILE" ]; then
-          echo "Lidarr config already configured"
-          exit 0
-        fi
-
+        setup_preamble "${markerFile}" "Lidarr configuration"
         wait_for_k3s
 
-        echo "Configuring Lidarr (Davo's Community Guide)..."
+        ${arr.helpers}
 
-        wait_for_app_pod() {
-          local app=$1
-          if [ "$($KUBECTL get deploy -n ${ns} "$app" -o jsonpath='{.spec.replicas}' 2>/dev/null)" = "0" ]; then
-            return 1
-          fi
-          for i in $(seq 1 30); do
-            if $KUBECTL get pods -n ${ns} -l app=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            if $KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            sleep 5
-          done
-          return 1
-        }
-
-        LIDARR_API=$(get_secret_value ${ns} lidarr-credentials API_KEY)
-
-        if ! wait_for_app_pod "lidarr" || [ -z "$LIDARR_API" ]; then
-          echo "Lidarr not available or no API key, skipping"
+        if ! arr_usable lidarr; then
           create_marker "${markerFile}"
           exit 0
         fi
 
-        # Naming scheme
-        CURRENT_NAMING=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-          ${curl} -s "http://localhost:8686/api/v1/config/naming" \
-          -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
-        if [ -n "$CURRENT_NAMING" ]; then
-          UPDATED_NAMING=$(echo "$CURRENT_NAMING" | $JQ '
-            .renameTracks = true |
-            .replaceIllegalCharacters = true |
-            .standardTrackFormat = "{Album Title} {(Album Disambiguation)}/{Artist Name}_{Album Title}_{track:00}_{Track Title}" |
-            .multiDiscTrackFormat = "{Album Title} {(Album Disambiguation)}/{Artist Name}_{Album Title}_{medium:00}-{track:00}_{Track Title}" |
-            .artistFolderFormat = "{Artist Name}"
-          ')
-          $KUBECTL exec -n ${ns} deploy/lidarr -- \
-            ${curl} -s -X PUT "http://localhost:8686/api/v1/config/naming" \
-            -H "X-Api-Key: $LIDARR_API" \
-            -H "Content-Type: application/json" \
-            -d "$UPDATED_NAMING" >/dev/null 2>&1
-          echo "  Lidarr: naming configured"
-        fi
+        arr_patch lidarr config/naming ${lib.escapeShellArg namingFilter} naming
+        arr_patch lidarr config/mediamanagement ${lib.escapeShellArg mgmtFilter} "media management"
+        arr_patch lidarr qualitydefinition ${lib.escapeShellArg qualityDefsFilter} \
+          "quality definitions" qualitydefinition/update
 
-        # Media management (hardlinks)
-        CURRENT_MGMT=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-          ${curl} -s "http://localhost:8686/api/v1/config/mediamanagement" \
-          -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
-        if [ -n "$CURRENT_MGMT" ]; then
-          UPDATED_MGMT=$(echo "$CURRENT_MGMT" | $JQ '.copyUsingHardlinks = true')
-          $KUBECTL exec -n ${ns} deploy/lidarr -- \
-            ${curl} -s -X PUT "http://localhost:8686/api/v1/config/mediamanagement" \
-            -H "X-Api-Key: $LIDARR_API" \
-            -H "Content-Type: application/json" \
-            -d "$UPDATED_MGMT" >/dev/null 2>&1
-          echo "  Lidarr: media management configured (hardlinks)"
-        fi
+        ${lib.concatMapStringsSep "\n        " ensureFormat customFormats}
 
-        # Quality definitions - adjust FLAC and FLAC 24bit limits
-        QUAL_DEFS=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-          ${curl} -s "http://localhost:8686/api/v1/qualitydefinition" \
-          -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
-        if [ -n "$QUAL_DEFS" ]; then
-          UPDATED_DEFS=$(echo "$QUAL_DEFS" | $JQ '
-            [.[] |
-              if .quality.name == "FLAC" then
-                .minSize = 0 | .preferredSize = 895 | .maxSize = 1400
-              elif .quality.name == "FLAC 24bit" then
-                .minSize = 0 | .preferredSize = 895 | .maxSize = 1495
-              else . end
-            ]
-          ')
-          $KUBECTL exec -n ${ns} deploy/lidarr -- \
-            ${curl} -s -X PUT "http://localhost:8686/api/v1/qualitydefinition/update" \
-            -H "X-Api-Key: $LIDARR_API" \
-            -H "Content-Type: application/json" \
-            -d "$UPDATED_DEFS" >/dev/null 2>&1
-          echo "  Lidarr: quality definitions configured (FLAC limits)"
-        fi
-
-        # Custom formats
-        EXISTING_CFS=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-          ${curl} -s "http://localhost:8686/api/v1/customformat" \
-          -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
-
-        create_lidarr_cf() {
-          local cf_name=$1 cf_json=$2
-          if echo "$EXISTING_CFS" | $JQ -e ".[] | select(.name == \"$cf_name\")" >/dev/null 2>&1; then
-            echo "    CF '$cf_name' already exists"
-          else
-            RESULT=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-              ${curl} -s -X POST "http://localhost:8686/api/v1/customformat" \
-              -H "X-Api-Key: $LIDARR_API" \
-              -H "Content-Type: application/json" \
-              -d "$cf_json" 2>&1)
-            if echo "$RESULT" | $JQ -e '.id' >/dev/null 2>&1; then
-              echo "    CF '$cf_name' created"
-            else
-              echo "    CF '$cf_name' error: $RESULT"
-            fi
-          fi
-        }
-
-        create_lidarr_cf "Preferred Groups" '{
-          "name": "Preferred Groups",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
-            {"name": "DeVOiD", "implementation": "ReleaseTitleSpecification", "negate": false, "required": false, "fields": {"value": "\\bDeVOiD\\b"}},
-            {"name": "PERFECT", "implementation": "ReleaseTitleSpecification", "negate": false, "required": false, "fields": {"value": "\\bPERFECT\\b"}},
-            {"name": "ENRiCH", "implementation": "ReleaseTitleSpecification", "negate": false, "required": false, "fields": {"value": "\\bENRiCH\\b"}}
-          ]
-        }'
-
-        create_lidarr_cf "CD" '{
-          "name": "CD",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
-            {"name": "CD", "implementation": "ReleaseTitleSpecification", "negate": false, "required": false, "fields": {"value": "\\bCD\\b"}}
-          ]
-        }'
-
-        create_lidarr_cf "WEB" '{
-          "name": "WEB",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
-            {"name": "WEB", "implementation": "ReleaseTitleSpecification", "negate": false, "required": false, "fields": {"value": "\\bWEB\\b"}}
-          ]
-        }'
-
-        create_lidarr_cf "Lossless" '{
-          "name": "Lossless",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
-            {"name": "FLAC", "implementation": "ReleaseTitleSpecification", "negate": false, "required": false, "fields": {"value": "\\bFLAC\\b"}}
-          ]
-        }'
-
-        create_lidarr_cf "Vinyl" '{
-          "name": "Vinyl",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
-            {"name": "Vinyl", "implementation": "ReleaseTitleSpecification", "negate": false, "required": false, "fields": {"value": "\\bVinyl\\b"}}
-          ]
-        }'
-
-        echo "  Lidarr: custom formats configured"
-
-        # Quality profile - get all CFs, find the first profile, update it
-        ALL_CFS=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-          ${curl} -s "http://localhost:8686/api/v1/customformat" \
-          -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
-        PROFILES=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-          ${curl} -s "http://localhost:8686/api/v1/qualityprofile" \
-          -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
+        SCORES=${lib.escapeShellArg (builtins.toJSON formatScores)}
+        ALL_CFS=$(arr_get lidarr customformat)
+        PROFILES=$(arr_get lidarr qualityprofile)
 
         if [ -n "$PROFILES" ] && [ -n "$ALL_CFS" ]; then
-          PROFILE_ID=$(echo "$PROFILES" | $JQ '.[0].id')
-
-          if [ -n "$PROFILE_ID" ] && [ "$PROFILE_ID" != "null" ]; then
-            CURRENT_PROFILE=$(echo "$PROFILES" | $JQ ".[0]")
-
-            CF_PREFERRED_ID=$(echo "$ALL_CFS" | $JQ '[.[] | select(.name == "Preferred Groups")][0].id // empty')
-            CF_CD_ID=$(echo "$ALL_CFS" | $JQ '[.[] | select(.name == "CD")][0].id // empty')
-            CF_WEB_ID=$(echo "$ALL_CFS" | $JQ '[.[] | select(.name == "WEB")][0].id // empty')
-            CF_LOSSLESS_ID=$(echo "$ALL_CFS" | $JQ '[.[] | select(.name == "Lossless")][0].id // empty')
-            CF_VINYL_ID=$(echo "$ALL_CFS" | $JQ '[.[] | select(.name == "Vinyl")][0].id // empty')
-
-            UPDATED_PROFILE=$(echo "$CURRENT_PROFILE" | $JQ \
-              --argjson pref_id "''${CF_PREFERRED_ID:-0}" \
-              --argjson cd_id "''${CF_CD_ID:-0}" \
-              --argjson web_id "''${CF_WEB_ID:-0}" \
-              --argjson lossless_id "''${CF_LOSSLESS_ID:-0}" \
-              --argjson vinyl_id "''${CF_VINYL_ID:-0}" '
-              .upgradeAllowed = true |
-              .minFormatScore = 1 |
-              .formatItems = [
-                (if $pref_id > 0 then {format: $pref_id, name: "Preferred Groups", score: 10} else empty end),
-                (if $cd_id > 0 then {format: $cd_id, name: "CD", score: 5} else empty end),
-                (if $web_id > 0 then {format: $web_id, name: "WEB", score: 3} else empty end),
-                (if $lossless_id > 0 then {format: $lossless_id, name: "Lossless", score: 5} else empty end),
-                (if $vinyl_id > 0 then {format: $vinyl_id, name: "Vinyl", score: -10} else empty end)
-              ]
+          PROFILE_ID=$(echo "$PROFILES" | $JQ -r '.[0].id // empty')
+          if [ -n "$PROFILE_ID" ]; then
+            UPDATED_PROFILE=$(echo "$PROFILES" | $JQ \
+              --argjson cfs "$ALL_CFS" --argjson scores "$SCORES" '
+              .[0]
+              | .upgradeAllowed = true
+              | .minFormatScore = 1
+              | .formatItems = [
+                  $scores[] as $s
+                  | ($cfs[] | select(.name == $s.name) | .id) as $id
+                  | { format: $id, name: $s.name, score: $s.score }
+                ]
             ')
-
-            $KUBECTL exec -n ${ns} deploy/lidarr -- \
-              ${curl} -s -X PUT "http://localhost:8686/api/v1/qualityprofile/$PROFILE_ID" \
-              -H "X-Api-Key: $LIDARR_API" \
-              -H "Content-Type: application/json" \
-              -d "$UPDATED_PROFILE" >/dev/null 2>&1
+            arr_put lidarr "qualityprofile/$PROFILE_ID" "$UPDATED_PROFILE" >/dev/null 2>&1
             echo "  Lidarr: quality profile updated (upgrades, CF scores, min score: 1)"
           fi
         fi

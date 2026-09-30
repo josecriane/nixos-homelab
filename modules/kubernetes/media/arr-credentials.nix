@@ -7,23 +7,61 @@
 }:
 
 let
-  ns = "media";
+  arr = import ./arr-lib.nix { inherit lib; };
+  ns = arr.ns;
   markerFile = "/var/lib/arr-credentials-setup-done";
+
+  authApps = [
+    {
+      app = "sonarr";
+      host = "sonarr";
+    }
+    {
+      app = "sonarr-es";
+      host = "sonarr-es";
+      pre = ''
+        $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
+          sed -i 's/<AuthenticationMethod>None</<AuthenticationMethod>Forms</' /config/config.xml 2>/dev/null || true
+      '';
+    }
+    {
+      app = "radarr";
+      host = "radarr";
+    }
+    {
+      app = "radarr-es";
+      host = "radarr-es";
+    }
+    {
+      app = "prowlarr";
+      host = "prowlarr";
+    }
+    {
+      app = "lidarr";
+      host = "lidarr";
+    }
+    {
+      app = "bookshelf";
+      host = "books";
+    }
+  ];
+
+  authCall =
+    entry:
+    (entry.pre or "")
+    + ''
+      set_auth ${entry.app} "https://${k8s.hostname entry.host}"
+    '';
 in
 {
   systemd.services.arr-credentials-setup = {
-    description = "Setup credentials for arr-stack and media services";
-    # After Tier 4 Media
+    description = "Configure credentials for arr-stack services";
     after = [
       "k3s-apps.target"
       "arr-stack-setup.service"
-      "arr-secrets-setup.service"
     ];
     requires = [ "k3s-apps.target" ];
-    wants = [
-      "arr-stack-setup.service"
-      "arr-secrets-setup.service"
-    ];
+    wants = [ "arr-stack-setup.service" ];
     wantedBy = [ "k3s-extras.target" ];
     before = [ "k3s-extras.target" ];
 
@@ -35,238 +73,40 @@ in
         set -e
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-        MARKER_FILE="${markerFile}"
-        if [ -f "$MARKER_FILE" ]; then
-          echo "Credentials already configured"
-          exit 0
-        fi
-
+        setup_preamble "${markerFile}" "Credentials"
         wait_for_k3s
+
+        ${arr.helpers}
 
         echo "Configuring credentials for services..."
 
-        # Helper function to wait for pod by app label
-        wait_for_app_pod() {
-          local app=$1
-          if [ "$($KUBECTL get deploy -n ${ns} "$app" -o jsonpath='{.spec.replicas}' 2>/dev/null)" = "0" ]; then
-            return 1
+        set_auth() {
+          local app="$1" url="$2" label key pass current updated
+          label=$(arr_label "$app")
+          arr_ready "$app" || { echo "  $label: not running, skipped"; return 0; }
+
+          key=$(arr_stable_key "$app")
+          if [ -z "$key" ]; then
+            echo "  $label: no stable API key yet, skipped"
+            return 0
           fi
-          for i in $(seq 1 30); do
-            if $KUBECTL get pods -n ${ns} -l app=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            if $KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            sleep 5
-          done
-          return 1
+
+          pass=$(get_secret_value ${ns} "$app-credentials" PASSWORD)
+          [ -z "$pass" ] && pass=$(generate_password 16)
+
+          current=$(arr_get "$app" config/host)
+          if [ -n "$current" ]; then
+            updated=$(echo "$current" | $JQ --arg user admin --arg pass "$pass" \
+              '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
+            arr_put "$app" config/host "$updated" >/dev/null 2>&1
+          fi
+
+          store_credentials ${ns} "$app-credentials" \
+            "USER=admin" "PASSWORD=$pass" "API_KEY=$key" "URL=$url"
+          echo "  $label: OK"
         }
 
-        # ============================================
-        # SONARR
-        # ============================================
-        if wait_for_app_pod "sonarr"; then
-          echo "Configuring Sonarr..."
-          SONARR_API=$($KUBECTL get secret sonarr-api-key -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || echo "")
-
-          if [ -n "$SONARR_API" ]; then
-            SONARR_PASS=$(get_secret_value "${ns}" "sonarr-credentials" "PASSWORD")
-            [ -z "$SONARR_PASS" ] && SONARR_PASS=$(generate_password 16)
-
-            # Get current config and update with credentials
-            CURRENT_CONFIG=$($KUBECTL exec -n ${ns} deploy/sonarr -- \
-              curl -s "http://localhost:8989/api/v3/config/host" -H "X-Api-Key: $SONARR_API" 2>/dev/null)
-
-            if [ -n "$CURRENT_CONFIG" ]; then
-              # Update config with username and password
-              UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | $JQ \
-                --arg user "admin" \
-                --arg pass "$SONARR_PASS" \
-                '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
-
-              $KUBECTL exec -n ${ns} deploy/sonarr -- \
-                curl -s -X PUT "http://localhost:8989/api/v3/config/host" \
-                -H "X-Api-Key: $SONARR_API" \
-                -H "Content-Type: application/json" \
-                -d "$UPDATED_CONFIG" >/dev/null 2>&1
-            fi
-
-            store_credentials "${ns}" "sonarr-credentials" "USER=admin" "PASSWORD=$SONARR_PASS" "API_KEY=$SONARR_API" "URL=https://${k8s.hostname "sonarr"}"
-            echo "  Sonarr: OK"
-          fi
-        fi
-
-        # ============================================
-        # SONARR ES (Spanish)
-        # ============================================
-        if wait_for_app_pod "sonarr-es"; then
-          echo "Configuring Sonarr ES..."
-
-          # Ensure AuthenticationMethod is Forms in config.xml before API call
-          $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-            sed -i 's/<AuthenticationMethod>None</<AuthenticationMethod>Forms</' /config/config.xml 2>/dev/null || true
-
-          SONARR_ES_API=$($KUBECTL get secret sonarr-es-api-key -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || echo "")
-
-          if [ -n "$SONARR_ES_API" ]; then
-            SONARR_ES_PASS=$(get_secret_value "${ns}" "sonarr-es-credentials" "PASSWORD")
-            [ -z "$SONARR_ES_PASS" ] && SONARR_ES_PASS=$(generate_password 16)
-
-            CURRENT_CONFIG=$($KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-              curl -s "http://localhost:8989/api/v3/config/host" -H "X-Api-Key: $SONARR_ES_API" 2>/dev/null)
-
-            if [ -n "$CURRENT_CONFIG" ]; then
-              UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | $JQ \
-                --arg user "admin" \
-                --arg pass "$SONARR_ES_PASS" \
-                '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
-
-              $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-                curl -s -X PUT "http://localhost:8989/api/v3/config/host" \
-                -H "X-Api-Key: $SONARR_ES_API" \
-                -H "Content-Type: application/json" \
-                -d "$UPDATED_CONFIG" >/dev/null 2>&1
-            fi
-
-            store_credentials "${ns}" "sonarr-es-credentials" "USER=admin" "PASSWORD=$SONARR_ES_PASS" "API_KEY=$SONARR_ES_API" "URL=https://${k8s.hostname "sonarr-es"}"
-            echo "  Sonarr ES: OK"
-          fi
-        fi
-
-        # ============================================
-        # RADARR
-        # ============================================
-        if wait_for_app_pod "radarr"; then
-          echo "Configuring Radarr..."
-          RADARR_API=$($KUBECTL get secret radarr-api-key -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || echo "")
-
-          if [ -n "$RADARR_API" ]; then
-            RADARR_PASS=$(get_secret_value "${ns}" "radarr-credentials" "PASSWORD")
-            [ -z "$RADARR_PASS" ] && RADARR_PASS=$(generate_password 16)
-
-            CURRENT_CONFIG=$($KUBECTL exec -n ${ns} deploy/radarr -- \
-              curl -s "http://localhost:7878/api/v3/config/host" -H "X-Api-Key: $RADARR_API" 2>/dev/null)
-
-            if [ -n "$CURRENT_CONFIG" ]; then
-              UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | $JQ \
-                --arg user "admin" \
-                --arg pass "$RADARR_PASS" \
-                '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
-
-              $KUBECTL exec -n ${ns} deploy/radarr -- \
-                curl -s -X PUT "http://localhost:7878/api/v3/config/host" \
-                -H "X-Api-Key: $RADARR_API" \
-                -H "Content-Type: application/json" \
-                -d "$UPDATED_CONFIG" >/dev/null 2>&1
-            fi
-
-            store_credentials "${ns}" "radarr-credentials" "USER=admin" "PASSWORD=$RADARR_PASS" "API_KEY=$RADARR_API" "URL=https://${k8s.hostname "radarr"}"
-            echo "  Radarr: OK"
-          fi
-        fi
-
-        # ============================================
-        # RADARR ES (Spanish)
-        # ============================================
-        if wait_for_app_pod "radarr-es"; then
-          echo "Configuring Radarr ES..."
-
-          # Ensure AuthenticationMethod is Forms in config.xml before API call
-          $KUBECTL exec -n ${ns} deploy/radarr-es -- \
-            sed -i 's/<AuthenticationMethod>None</<AuthenticationMethod>Forms</' /config/config.xml 2>/dev/null || true
-
-          RADARR_ES_API=$($KUBECTL get secret radarr-es-api-key -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || echo "")
-
-          if [ -n "$RADARR_ES_API" ]; then
-            RADARR_ES_PASS=$(get_secret_value "${ns}" "radarr-es-credentials" "PASSWORD")
-            [ -z "$RADARR_ES_PASS" ] && RADARR_ES_PASS=$(generate_password 16)
-
-            CURRENT_CONFIG=$($KUBECTL exec -n ${ns} deploy/radarr-es -- \
-              curl -s "http://localhost:7878/api/v3/config/host" -H "X-Api-Key: $RADARR_ES_API" 2>/dev/null)
-
-            if [ -n "$CURRENT_CONFIG" ]; then
-              UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | $JQ \
-                --arg user "admin" \
-                --arg pass "$RADARR_ES_PASS" \
-                '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
-
-              $KUBECTL exec -n ${ns} deploy/radarr-es -- \
-                curl -s -X PUT "http://localhost:7878/api/v3/config/host" \
-                -H "X-Api-Key: $RADARR_ES_API" \
-                -H "Content-Type: application/json" \
-                -d "$UPDATED_CONFIG" >/dev/null 2>&1
-            fi
-
-            store_credentials "${ns}" "radarr-es-credentials" "USER=admin" "PASSWORD=$RADARR_ES_PASS" "API_KEY=$RADARR_ES_API" "URL=https://${k8s.hostname "radarr-es"}"
-            echo "  Radarr ES: OK"
-          fi
-        fi
-
-        # ============================================
-        # PROWLARR
-        # ============================================
-        if wait_for_app_pod "prowlarr"; then
-          echo "Configuring Prowlarr..."
-          PROWLARR_API=$($KUBECTL get secret prowlarr-api-key -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || echo "")
-
-          if [ -n "$PROWLARR_API" ]; then
-            PROWLARR_PASS=$(get_secret_value "${ns}" "prowlarr-credentials" "PASSWORD")
-            [ -z "$PROWLARR_PASS" ] && PROWLARR_PASS=$(generate_password 16)
-
-            CURRENT_CONFIG=$($KUBECTL exec -n ${ns} deploy/prowlarr -- \
-              curl -s "http://localhost:9696/api/v1/config/host" -H "X-Api-Key: $PROWLARR_API" 2>/dev/null)
-
-            if [ -n "$CURRENT_CONFIG" ]; then
-              UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | $JQ \
-                --arg user "admin" \
-                --arg pass "$PROWLARR_PASS" \
-                '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
-
-              $KUBECTL exec -n ${ns} deploy/prowlarr -- \
-                curl -s -X PUT "http://localhost:9696/api/v1/config/host" \
-                -H "X-Api-Key: $PROWLARR_API" \
-                -H "Content-Type: application/json" \
-                -d "$UPDATED_CONFIG" >/dev/null 2>&1
-            fi
-
-            store_credentials "${ns}" "prowlarr-credentials" "USER=admin" "PASSWORD=$PROWLARR_PASS" "API_KEY=$PROWLARR_API" "URL=https://${k8s.hostname "prowlarr"}"
-            echo "  Prowlarr: OK"
-          fi
-        fi
-
-        # ============================================
-        # LIDARR
-        # ============================================
-        if wait_for_app_pod "lidarr"; then
-          echo "Configuring Lidarr..."
-          LIDARR_API=$($KUBECTL get secret lidarr-api-key -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || echo "")
-
-          if [ -n "$LIDARR_API" ]; then
-            LIDARR_PASS=$(get_secret_value "${ns}" "lidarr-credentials" "PASSWORD")
-            [ -z "$LIDARR_PASS" ] && LIDARR_PASS=$(generate_password 16)
-
-            CURRENT_CONFIG=$($KUBECTL exec -n ${ns} deploy/lidarr -- \
-              curl -s "http://localhost:8686/api/v1/config/host" -H "X-Api-Key: $LIDARR_API" 2>/dev/null)
-
-            if [ -n "$CURRENT_CONFIG" ]; then
-              UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | $JQ \
-                --arg user "admin" \
-                --arg pass "$LIDARR_PASS" \
-                '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
-
-              $KUBECTL exec -n ${ns} deploy/lidarr -- \
-                curl -s -X PUT "http://localhost:8686/api/v1/config/host" \
-                -H "X-Api-Key: $LIDARR_API" \
-                -H "Content-Type: application/json" \
-                -d "$UPDATED_CONFIG" >/dev/null 2>&1
-            fi
-
-            store_credentials "${ns}" "lidarr-credentials" "USER=admin" "PASSWORD=$LIDARR_PASS" "API_KEY=$LIDARR_API" "URL=https://${k8s.hostname "lidarr"}"
-            echo "  Lidarr: OK"
-          fi
-        fi
-
+        ${lib.concatMapStringsSep "\n        " authCall authApps}
         # ============================================
         # BAZARR
         # ============================================
@@ -369,37 +209,6 @@ in
           echo "  qBittorrent: OK"
         fi
 
-        # ============================================
-        # BOOKSHELF
-        # ============================================
-        if wait_for_app_pod "bookshelf"; then
-          echo "Configuring Bookshelf..."
-          BOOKSHELF_API=$($KUBECTL get secret bookshelf-api-key -n ${ns} -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || echo "")
-
-          if [ -n "$BOOKSHELF_API" ]; then
-            BOOKSHELF_PASS=$(get_secret_value "${ns}" "bookshelf-credentials" "PASSWORD")
-            [ -z "$BOOKSHELF_PASS" ] && BOOKSHELF_PASS=$(generate_password 16)
-
-            CURRENT_CONFIG=$($KUBECTL exec -n ${ns} deploy/bookshelf -- \
-              curl -s "http://localhost:8787/api/v1/config/host" -H "X-Api-Key: $BOOKSHELF_API" 2>/dev/null)
-
-            if [ -n "$CURRENT_CONFIG" ]; then
-              UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | $JQ \
-                --arg user "admin" \
-                --arg pass "$BOOKSHELF_PASS" \
-                '.username = $user | .password = $pass | .passwordConfirmation = $pass | .authenticationMethod = "forms"')
-
-              $KUBECTL exec -n ${ns} deploy/bookshelf -- \
-                curl -s -X PUT "http://localhost:8787/api/v1/config/host" \
-                -H "X-Api-Key: $BOOKSHELF_API" \
-                -H "Content-Type: application/json" \
-                -d "$UPDATED_CONFIG" >/dev/null 2>&1
-            fi
-
-            store_credentials "${ns}" "bookshelf-credentials" "USER=admin" "PASSWORD=$BOOKSHELF_PASS" "API_KEY=$BOOKSHELF_API" "URL=https://${k8s.hostname "books"}"
-            echo "  Bookshelf: OK"
-          fi
-        fi
 
         # ============================================
         # SYNCTHING

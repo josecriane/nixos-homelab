@@ -3,19 +3,53 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
-  ns = "media";
+  arr = import ./arr-lib.nix { inherit lib; };
+  ns = arr.ns;
   markerFile = "/var/lib/arr-download-clients-setup-done";
-  curl = "curl";
 
   qbitCfg = config.homelab.qbittorrent;
   qbitMaxActiveDownloads = toString (qbitCfg.maxActiveDownloads or 5);
   qbitMaxActiveTorrents = toString (qbitCfg.maxActiveTorrents or 10);
   qbitMaxActiveUploads = toString (qbitCfg.maxActiveUploads or 3);
+
+  clients = [
+    {
+      app = "sonarr";
+      field = "tvCategory";
+      category = "tv";
+    }
+    {
+      app = "radarr";
+      field = "movieCategory";
+      category = "movies";
+    }
+    {
+      app = "lidarr";
+      field = "musicCategory";
+      category = "music";
+    }
+    {
+      app = "sonarr-es";
+      field = "tvCategory";
+      category = "tv-es";
+    }
+    {
+      app = "radarr-es";
+      field = "movieCategory";
+      category = "movies-es";
+    }
+    {
+      app = "bookshelf";
+      field = "bookCategory";
+      category = "books";
+    }
+  ];
+
+  addClient = c: "add_qbit_client ${c.app} ${c.field} ${c.category}";
 in
 {
   systemd.services.arr-download-clients-setup = {
@@ -37,15 +71,10 @@ in
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         set +e
 
-        MARKER_FILE="${markerFile}"
-        if [ -f "$MARKER_FILE" ]; then
-          echo "Download clients already configured"
-          exit 0
-        fi
-
+        setup_preamble "${markerFile}" "Download clients"
         wait_for_k3s
 
-        echo "Configuring download clients..."
+        ${arr.helpers}
 
         # ============================================
         # LOAD ALL CREDENTIALS
@@ -74,35 +103,14 @@ in
         # ============================================
         # CONFIGURE QBITTORRENT VIA API
         # ============================================
-        echo ""
-        echo "=== Configuring qBittorrent ==="
-
-        # Helper function to wait for pod by app label (supports both app= and app.kubernetes.io/name= labels)
-        wait_for_app_pod() {
-          local app=$1
-          if [ "$($KUBECTL get deploy -n ${ns} "$app" -o jsonpath='{.spec.replicas}' 2>/dev/null)" = "0" ]; then
-            return 1
-          fi
-          for i in $(seq 1 30); do
-            if $KUBECTL get pods -n ${ns} -l app=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            if $KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            sleep 5
-          done
-          return 1
-        }
-
-        if wait_for_app_pod "qbittorrent"; then
+        if arr_ready qbittorrent; then
           sleep 10  # Wait for WebUI to be ready
 
           # Login to qBittorrent API (try stored password, then default, then temp from logs)
           QBIT_SID=""
           for try_pass in "$QBIT_PASS" "adminadmin"; do
             QBIT_LOGIN=$($KUBECTL exec -n ${ns} deploy/qbittorrent -- \
-              ${curl} -s -c - "http://localhost:8080/api/v2/auth/login" \
+              curl -s -c - "http://localhost:8080/api/v2/auth/login" \
               -d "username=admin&password=$try_pass" 2>/dev/null)
             if echo "$QBIT_LOGIN" | grep -q "SID"; then
               QBIT_SID=$(echo "$QBIT_LOGIN" | grep SID | ${pkgs.gawk}/bin/awk '{print $NF}')
@@ -116,7 +124,7 @@ in
               grep -oP "temporary password is provided.*: \K\S+" | tail -1 || echo "")
             if [ -n "$TEMP_PASS" ]; then
               QBIT_LOGIN=$($KUBECTL exec -n ${ns} deploy/qbittorrent -- \
-                ${curl} -s -c - "http://localhost:8080/api/v2/auth/login" \
+                curl -s -c - "http://localhost:8080/api/v2/auth/login" \
                 -d "username=admin&password=$TEMP_PASS" 2>/dev/null)
               QBIT_SID=$(echo "$QBIT_LOGIN" | grep SID | ${pkgs.gawk}/bin/awk '{print $NF}')
             fi
@@ -127,7 +135,7 @@ in
 
             # 1. Set save path, TMM, and queue settings via API
             $KUBECTL exec -n ${ns} deploy/qbittorrent -- \
-              ${curl} -s $QBIT_COOKIE "http://localhost:8080/api/v2/app/setPreferences" \
+              curl -s $QBIT_COOKIE "http://localhost:8080/api/v2/app/setPreferences" \
               --data-urlencode 'json={
                 "save_path": "/data/torrents",
                 "temp_path": "/data/torrents/incomplete",
@@ -156,7 +164,7 @@ in
             for cat_def in "tv:/data/torrents/tv" "movies:/data/torrents/movies" "music:/data/torrents/music" "books:/data/torrents/books"; do
               IFS=':' read -r cat_name cat_path <<< "$cat_def"
               $KUBECTL exec -n ${ns} deploy/qbittorrent -- \
-                ${curl} -s $QBIT_COOKIE "http://localhost:8080/api/v2/torrents/createCategory" \
+                curl -s $QBIT_COOKIE "http://localhost:8080/api/v2/torrents/createCategory" \
                 -d "category=$cat_name&savePath=$cat_path" 2>/dev/null
             done
             echo "  qBittorrent: categories created (tv, movies, music, books)"
@@ -168,136 +176,68 @@ in
         # ============================================
         # CONFIGURE QBITTORRENT AS DOWNLOAD CLIENT
         # ============================================
-        echo ""
-        echo "=== Configuring qBittorrent as download client ==="
-
-        # Helper: add qBittorrent download client to an arr service
-        # Usage: add_qbit_client APP PORT API_VERSION API_KEY CATEGORY_FIELD CATEGORY_VALUE [EXTRA_FIELDS]
         add_qbit_client() {
-          local app="$1" port="$2" api_ver="$3" api_key="$4" cat_field="$5" cat_value="$6"
+          local app="$1" cat_field="$2" cat_value="$3" label payload existing result
+          label=$(arr_label "$app")
 
-          if ! wait_for_app_pod "$app"; then
-            echo "  $app: pod not ready, skipping"
-            return
+          arr_usable "$app" || return 0
+          if ! arr_api_ready "$app"; then
+            echo "  $label: API not ready after 60s, skipped"
+            return 0
           fi
 
-          # Wait for API to be responsive
-          local api_ready=false
-          for i in $(seq 1 12); do
-            if $KUBECTL exec -n ${ns} deploy/$app -- \
-              ${curl} -sf "http://localhost:$port/api/$api_ver/system/status" \
-              -H "X-Api-Key: $api_key" >/dev/null 2>&1; then
-              api_ready=true
-              break
-            fi
-            sleep 5
-          done
-          if [ "$api_ready" != "true" ]; then
-            echo "  $app: API not ready after 60s, skipping"
-            return
+          existing=$(arr_get "$app" downloadclient | $JQ '.[] | select(.name == "qBittorrent")' 2>/dev/null || echo "")
+          if [ -n "$existing" ]; then
+            echo "  $label: qBittorrent already configured"
+            return 0
           fi
 
-          EXISTING=$($KUBECTL exec -n ${ns} deploy/$app -- \
-            ${curl} -s "http://localhost:$port/api/$api_ver/downloadclient" \
-            -H "X-Api-Key: $api_key" 2>/dev/null | $JQ '.[] | select(.name == "qBittorrent")' || echo "")
-
-          if [ -n "$EXISTING" ]; then
-            echo "  $app: qBittorrent already configured"
-            return
-          fi
-
-          RESULT=$($KUBECTL exec -n ${ns} deploy/$app -- \
-            ${curl} -s -X POST "http://localhost:$port/api/$api_ver/downloadclient" \
-            -H "X-Api-Key: $api_key" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "enable": true,
-              "protocol": "torrent",
-              "priority": 1,
-              "removeCompletedDownloads": true,
-              "removeFailedDownloads": true,
-              "name": "qBittorrent",
-              "implementation": "QBittorrent",
-              "configContract": "QBittorrentSettings",
-              "fields": [
-                {"name": "host", "value": "qbittorrent"},
-                {"name": "port", "value": 8080},
-                {"name": "useSsl", "value": false},
-                {"name": "urlBase", "value": ""},
-                {"name": "username", "value": "admin"},
-                {"name": "password", "value": "'"$QBIT_PASS"'"},
-                {"name": "'"$cat_field"'", "value": "'"$cat_value"'"},
-                {"name": "initialState", "value": 0},
-                {"name": "sequentialOrder", "value": false},
-                {"name": "firstAndLast", "value": false},
-                {"name": "contentLayout", "value": 0}
+          payload=$($JQ -n \
+            --arg pass "$QBIT_PASS" \
+            --arg field "$cat_field" \
+            --arg category "$cat_value" \
+            '{
+              enable: true,
+              protocol: "torrent",
+              priority: 1,
+              removeCompletedDownloads: true,
+              removeFailedDownloads: true,
+              name: "qBittorrent",
+              implementation: "QBittorrent",
+              configContract: "QBittorrentSettings",
+              fields: [
+                {name: "host", value: "qbittorrent"},
+                {name: "port", value: 8080},
+                {name: "useSsl", value: false},
+                {name: "urlBase", value: ""},
+                {name: "username", value: "admin"},
+                {name: "password", value: $pass},
+                {name: $field, value: $category},
+                {name: "initialState", value: 0},
+                {name: "sequentialOrder", value: false},
+                {name: "firstAndLast", value: false},
+                {name: "contentLayout", value: 0}
               ],
-              "tags": []
-            }' 2>/dev/null)
+              tags: []
+            }')
 
-          if echo "$RESULT" | $JQ -e '.id' >/dev/null 2>&1; then
-            echo "  $app: qBittorrent configured"
-          else
-            # Retry once after short wait
+          result=$(arr_post "$app" downloadclient "$payload")
+          if ! echo "$result" | $JQ -e '.id' >/dev/null 2>&1; then
             sleep 5
-            RESULT=$($KUBECTL exec -n ${ns} deploy/$app -- \
-              ${curl} -s -X POST "http://localhost:$port/api/$api_ver/downloadclient" \
-              -H "X-Api-Key: $api_key" \
-              -H "Content-Type: application/json" \
-              -d '{
-                "enable": true,
-                "protocol": "torrent",
-                "priority": 1,
-                "removeCompletedDownloads": true,
-                "removeFailedDownloads": true,
-                "name": "qBittorrent",
-                "implementation": "QBittorrent",
-                "configContract": "QBittorrentSettings",
-                "fields": [
-                  {"name": "host", "value": "qbittorrent"},
-                  {"name": "port", "value": 8080},
-                  {"name": "useSsl", "value": false},
-                  {"name": "urlBase", "value": ""},
-                  {"name": "username", "value": "admin"},
-                  {"name": "password", "value": "'"$QBIT_PASS"'"},
-                  {"name": "'"$cat_field"'", "value": "'"$cat_value"'"},
-                  {"name": "initialState", "value": 0},
-                  {"name": "sequentialOrder", "value": false},
-                  {"name": "firstAndLast", "value": false},
-                  {"name": "contentLayout", "value": 0}
-                ],
-                "tags": []
-              }' 2>/dev/null)
-            if echo "$RESULT" | $JQ -e '.id' >/dev/null 2>&1; then
-              echo "  $app: qBittorrent configured (retry)"
-            else
-              echo "  $app: Error adding qBittorrent - $RESULT"
-            fi
+            result=$(arr_post "$app" downloadclient "$payload")
+          fi
+
+          if echo "$result" | $JQ -e '.id' >/dev/null 2>&1; then
+            echo "  $label: qBittorrent configured"
+          else
+            echo "  $label: error adding qBittorrent - $(arr_error_of "$result")"
           fi
         }
 
-        # Add qBittorrent to Sonarr
-        add_qbit_client "sonarr" "8989" "v3" "$SONARR_API" "tvCategory" "tv"
-
-        # Add qBittorrent to Radarr
-        add_qbit_client "radarr" "7878" "v3" "$RADARR_API" "movieCategory" "movies"
-
-        # Add qBittorrent to Lidarr (v1 API)
-        [ -n "$LIDARR_API" ] && add_qbit_client "lidarr" "8686" "v1" "$LIDARR_API" "musicCategory" "music"
-
-        # Add qBittorrent to Sonarr ES
-        [ -n "$SONARR_ES_API" ] && add_qbit_client "sonarr-es" "8989" "v3" "$SONARR_ES_API" "tvCategory" "tv-es"
-
-        # Add qBittorrent to Radarr ES
-        [ -n "$RADARR_ES_API" ] && add_qbit_client "radarr-es" "7878" "v3" "$RADARR_ES_API" "movieCategory" "movies-es"
-
-        # Add qBittorrent to Bookshelf (Readarr v1 API)
-        [ -n "$BOOKSHELF_API" ] && add_qbit_client "bookshelf" "8787" "v1" "$BOOKSHELF_API" "bookCategory" "books"
+        ${lib.concatMapStringsSep "\n        " addClient clients}
 
         echo ""
         echo "=== Download clients configured ==="
-        echo "- qBittorrent preferences (TMM, categories, save_path)"
-        echo "- qBittorrent registered in Sonarr, Radarr, Lidarr, Sonarr ES, Radarr ES, Bookshelf"
 
         create_marker "${markerFile}"
       '';

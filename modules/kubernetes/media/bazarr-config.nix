@@ -9,6 +9,7 @@
 }:
 
 let
+  arr = import ./arr-lib.nix { inherit lib; };
   ns = "media";
   markerFile = "/var/lib/bazarr-config-setup-done";
   curl = "curl";
@@ -51,24 +52,10 @@ in
 
                 wait_for_k3s
 
+                ${arr.readyHelper}
+
                 echo "Configuring Bazarr (subtitles)..."
 
-                wait_for_app_pod() {
-                  local app=$1
-                  if [ "$($KUBECTL get deploy -n ${ns} "$app" -o jsonpath='{.spec.replicas}' 2>/dev/null)" = "0" ]; then
-                    return 1
-                  fi
-                  for i in $(seq 1 30); do
-                    if $KUBECTL get pods -n ${ns} -l app=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-                      return 0
-                    fi
-                    if $KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-                      return 0
-                    fi
-                    sleep 5
-                  done
-                  return 1
-                }
 
                 SONARR_API=$(get_secret_value ${ns} sonarr-credentials API_KEY)
                 RADARR_API=$(get_secret_value ${ns} radarr-credentials API_KEY)
@@ -84,7 +71,7 @@ in
                   exit 1
                 fi
 
-                if ! wait_for_app_pod "bazarr"; then
+                if ! arr_ready bazarr; then
                   echo "Bazarr not available, skipping"
                   exit 1
                 fi

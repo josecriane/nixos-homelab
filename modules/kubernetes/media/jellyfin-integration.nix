@@ -1,17 +1,51 @@
 {
   k8s,
-  config,
   lib,
   pkgs,
   ...
 }:
 
 let
-  ns = "media";
+  arr = import ./arr-lib.nix { inherit lib; };
+  ns = arr.ns;
   markerFile = "/var/lib/jellyfin-integration-setup-done";
-  curl = "curl";
   curlBin = "${pkgs.curl}/bin/curl";
   migratorPodYaml = ./_migrator-pod.yaml;
+
+  notificationTargets = [
+    {
+      app = "sonarr";
+      deleteEvents = [
+        "onSeriesDelete"
+        "onEpisodeFileDelete"
+      ];
+    }
+    {
+      app = "radarr";
+      deleteEvents = [
+        "onMovieDelete"
+        "onMovieFileDelete"
+      ];
+    }
+    {
+      app = "sonarr-es";
+      deleteEvents = [
+        "onSeriesDelete"
+        "onEpisodeFileDelete"
+      ];
+    }
+    {
+      app = "radarr-es";
+      deleteEvents = [
+        "onMovieDelete"
+        "onMovieFileDelete"
+      ];
+    }
+  ];
+
+  notificationCall =
+    target:
+    "ensure_jellyfin_notification ${target.app} ${lib.escapeShellArg (builtins.toJSON target.deleteEvents)}";
 in
 {
   systemd.services.jellyfin-integration-setup = {
@@ -19,14 +53,14 @@ in
     after = [
       "k3s-apps.target"
       "arr-credentials-setup.service"
-      "arr-download-clients-setup.service"
-      "recyclarr-setup.service"
+      "jellyfin-setup.service"
+      "jellyseerr-setup.service"
     ];
     requires = [ "k3s-apps.target" ];
     wants = [
       "arr-credentials-setup.service"
-      "arr-download-clients-setup.service"
-      "recyclarr-setup.service"
+      "jellyfin-setup.service"
+      "jellyseerr-setup.service"
     ];
     wantedBy = [ "k3s-extras.target" ];
     before = [ "k3s-extras.target" ];
@@ -39,32 +73,10 @@ in
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         set +e
 
-        MARKER_FILE="${markerFile}"
-        if [ -f "$MARKER_FILE" ]; then
-          echo "Jellyfin integration already configured"
-          exit 0
-        fi
-
+        setup_preamble "${markerFile}" "Jellyfin integration"
         wait_for_k3s
 
-        echo "Configuring Jellyfin integration..."
-
-        wait_for_app_pod() {
-          local app=$1
-          if [ "$($KUBECTL get deploy -n ${ns} "$app" -o jsonpath='{.spec.replicas}' 2>/dev/null)" = "0" ]; then
-            return 1
-          fi
-          for i in $(seq 1 30); do
-            if $KUBECTL get pods -n ${ns} -l app=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            if $KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=$app -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null | grep -q "true"; then
-              return 0
-            fi
-            sleep 5
-          done
-          return 1
-        }
+        ${arr.helpers}
 
         SONARR_API=$(get_secret_value ${ns} sonarr-credentials API_KEY)
         SONARR_ES_API=$(get_secret_value ${ns} sonarr-es-credentials API_KEY)
@@ -85,10 +97,10 @@ in
         JELLYFIN_API=""
         ADMIN_USER=$(get_secret_value ${ns} jellyfin-credentials ADMIN_USER)
         ADMIN_PASSWORD=$(get_secret_value ${ns} jellyfin-credentials ADMIN_PASSWORD)
-        if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASSWORD" ] && wait_for_app_pod "jellyfin"; then
+        if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASSWORD" ] && arr_ready "jellyfin"; then
 
           JF_AUTH=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-            ${curl} -s -X POST "http://localhost:8096/Users/AuthenticateByName" \
+            curl -s -X POST "http://localhost:8096/Users/AuthenticateByName" \
             -H "Content-Type: application/json" \
             -H "X-Emby-Authorization: MediaBrowser Client=\"ArrStack\", Device=\"NixOS\", DeviceId=\"setup\", Version=\"1.0\"" \
             -d "{\"Username\":\"$ADMIN_USER\",\"Pw\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
@@ -96,25 +108,25 @@ in
 
           if [ -n "$JF_TOKEN" ]; then
             JELLYFIN_API=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-              ${curl} -s "http://localhost:8096/Auth/Keys?api_key=$JF_TOKEN" 2>/dev/null | \
+              curl -s "http://localhost:8096/Auth/Keys?api_key=$JF_TOKEN" 2>/dev/null | \
               $JQ -r '.Items[] | select(.AppName == "ArrStack") | .AccessToken' 2>/dev/null || echo "")
 
             if [ -z "$JELLYFIN_API" ]; then
               $KUBECTL exec -n ${ns} deploy/jellyfin -- \
-                ${curl} -s -X POST "http://localhost:8096/Auth/Keys?app=ArrStack&api_key=$JF_TOKEN" 2>/dev/null || true
+                curl -s -X POST "http://localhost:8096/Auth/Keys?app=ArrStack&api_key=$JF_TOKEN" 2>/dev/null || true
               sleep 2
               JELLYFIN_API=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-                ${curl} -s "http://localhost:8096/Auth/Keys?api_key=$JF_TOKEN" 2>/dev/null | \
+                curl -s "http://localhost:8096/Auth/Keys?api_key=$JF_TOKEN" 2>/dev/null | \
                 $JQ -r '.Items[] | select(.AppName == "ArrStack") | .AccessToken' 2>/dev/null || echo "")
             fi
 
             if [ -n "$JELLYFIN_API" ]; then
               echo "  Jellyfin API key: OK (ArrStack)"
               JELLYFIN_SERVER_ID=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-                ${curl} -s "http://localhost:8096/System/Info/Public" 2>/dev/null | \
+                curl -s "http://localhost:8096/System/Info/Public" 2>/dev/null | \
                 $JQ -r '.Id // empty' 2>/dev/null || echo "")
               JELLYFIN_LIBRARIES=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-                ${curl} -s "http://localhost:8096/Library/VirtualFolders?api_key=$JF_TOKEN" 2>/dev/null | \
+                curl -s "http://localhost:8096/Library/VirtualFolders?api_key=$JF_TOKEN" 2>/dev/null | \
                 $JQ '[.[] | {id: .ItemId, name: .Name, enabled: true}]' 2>/dev/null || echo "[]")
             else
               echo "  Jellyfin API key: Error creating"
@@ -132,7 +144,7 @@ in
         echo ""
         echo "=== Configuring Jellyseerr ==="
 
-        if wait_for_app_pod "jellyseerr" && [ -n "$JELLYFIN_API" ] && [ -n "$JELLYFIN_SERVER_ID" ]; then
+        if arr_ready "jellyseerr" && [ -n "$JELLYFIN_API" ] && [ -n "$JELLYFIN_SERVER_ID" ]; then
           JSEERR_SETTINGS_CONTENT=$($KUBECTL exec -n ${ns} deploy/jellyseerr -- \
             cat /app/config/settings.json 2>/dev/null || echo "")
           IS_INITIALIZED="false"
@@ -155,13 +167,13 @@ in
 
             # Get quality profiles by name (TRaSH Guides profiles from Recyclarr)
             RADARR_PROFILES=$($KUBECTL exec -n ${ns} deploy/radarr -- \
-              ${curl} -s "http://localhost:7878/api/v3/qualityprofile" \
+              curl -s "http://localhost:7878/api/v3/qualityprofile" \
               -H "X-Api-Key: $RADARR_API" 2>/dev/null)
             RADARR_PROFILE_ID=$(echo "$RADARR_PROFILES" | $JQ '[.[] | select(.name == "HD Bluray + WEB")][0].id // .[0].id' 2>/dev/null || echo "1")
             RADARR_PROFILE_NAME=$(echo "$RADARR_PROFILES" | $JQ -r '[.[] | select(.name == "HD Bluray + WEB")][0].name // .[0].name' 2>/dev/null || echo "Any")
 
             SONARR_PROFILES=$($KUBECTL exec -n ${ns} deploy/sonarr -- \
-              ${curl} -s "http://localhost:8989/api/v3/qualityprofile" \
+              curl -s "http://localhost:8989/api/v3/qualityprofile" \
               -H "X-Api-Key: $SONARR_API" 2>/dev/null)
             SONARR_PROFILE_ID=$(echo "$SONARR_PROFILES" | $JQ '[.[] | select(.name == "WEB-1080p")][0].id // .[0].id' 2>/dev/null || echo "1")
             SONARR_PROFILE_NAME=$(echo "$SONARR_PROFILES" | $JQ -r '[.[] | select(.name == "WEB-1080p")][0].name // .[0].name' 2>/dev/null || echo "Any")
@@ -349,195 +361,89 @@ in
         # Verify API key is valid before configuring notifications
         if [ -n "$JELLYFIN_API" ]; then
           JF_KEY_TEST=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-            ${curl} -s -w "%{http_code}" "http://localhost:8096/System/Info?api_key=$JELLYFIN_API" -o /dev/null 2>/dev/null)
+            curl -s -w "%{http_code}" "http://localhost:8096/System/Info?api_key=$JELLYFIN_API" -o /dev/null 2>/dev/null)
           if [ "$JF_KEY_TEST" != "200" ]; then
             echo "  Jellyfin API key invalid (HTTP $JF_KEY_TEST), recreating..."
             JF_TOKEN=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-              ${curl} -s -X POST "http://localhost:8096/Users/AuthenticateByName" \
+              curl -s -X POST "http://localhost:8096/Users/AuthenticateByName" \
               -H "Content-Type: application/json" \
               -H "X-Emby-Authorization: MediaBrowser Client=\"ArrStack\", Device=\"NixOS\", DeviceId=\"setup\", Version=\"1.0\"" \
               -d "{\"Username\":\"$ADMIN_USER\",\"Pw\":\"$ADMIN_PASSWORD\"}" 2>/dev/null | $JQ -r '.AccessToken // empty' 2>/dev/null || echo "")
             if [ -n "$JF_TOKEN" ]; then
               $KUBECTL exec -n ${ns} deploy/jellyfin -- \
-                ${curl} -s -X POST "http://localhost:8096/Auth/Keys?app=ArrStack&api_key=$JF_TOKEN" 2>/dev/null || true
+                curl -s -X POST "http://localhost:8096/Auth/Keys?app=ArrStack&api_key=$JF_TOKEN" 2>/dev/null || true
               sleep 2
               JELLYFIN_API=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
-                ${curl} -s "http://localhost:8096/Auth/Keys?api_key=$JF_TOKEN" 2>/dev/null | \
+                curl -s "http://localhost:8096/Auth/Keys?api_key=$JF_TOKEN" 2>/dev/null | \
                 $JQ -r '.Items[] | select(.AppName == "ArrStack") | .AccessToken' 2>/dev/null || echo "")
               echo "  Jellyfin API key: refreshed"
             fi
           fi
         fi
 
+
         update_notification_key() {
-          local deploy=$1 port=$2 arr_api=$3 display_name=$4 existing="$5"
-          local notif_id current_key updated
+          local app="$1" existing="$2" label notif_id current_key updated
+          label=$(arr_label "$app")
           notif_id=$(echo "$existing" | $JQ -r '.id')
           current_key=$(echo "$existing" | $JQ -r '.fields[] | select(.name == "apiKey") | .value')
-          if [ "$current_key" != "$JELLYFIN_API" ]; then
-            updated=$(echo "$existing" | $JQ '(.fields[] | select(.name == "apiKey")).value = "'"$JELLYFIN_API"'"')
-            $KUBECTL exec -n ${ns} deploy/$deploy -- \
-              ${curl} -s -X PUT "http://localhost:$port/api/v3/notification/$notif_id" \
-              -H "X-Api-Key: $arr_api" \
-              -H "Content-Type: application/json" \
-              -d "$updated" >/dev/null 2>&1
-            echo "  $display_name -> Jellyfin: API key updated"
+          if [ "$current_key" = "$JELLYFIN_API" ]; then
+            echo "  $label -> Jellyfin: already configured"
+            return 0
+          fi
+          updated=$(echo "$existing" | $JQ --arg key "$JELLYFIN_API" \
+            '(.fields[] | select(.name == "apiKey")).value = $key')
+          arr_put "$app" "notification/$notif_id" "$updated" >/dev/null 2>&1
+          echo "  $label -> Jellyfin: API key updated"
+        }
+
+        ensure_jellyfin_notification() {
+          local app="$1" delete_events="$2" label existing schema notification result
+          label=$(arr_label "$app")
+
+          if [ -z "$JELLYFIN_API" ]; then
+            echo "  $label -> Jellyfin: no Jellyfin API key, skipped"
+            return 0
+          fi
+          arr_usable "$app" || return 0
+
+          existing=$(arr_get "$app" notification | $JQ '.[] | select(.name == "Jellyfin")' 2>/dev/null || echo "")
+          if [ -n "$existing" ]; then
+            update_notification_key "$app" "$existing"
+            return 0
+          fi
+
+          schema=$(arr_get "$app" notification/schema \
+            | $JQ '.[] | select(.implementation == "MediaBrowser")' 2>/dev/null || echo "")
+          if [ -z "$schema" ]; then
+            echo "  $label -> Jellyfin: no MediaBrowser schema, skipped"
+            return 0
+          fi
+
+          notification=$(echo "$schema" | $JQ \
+            --arg key "$JELLYFIN_API" --argjson deletes "$delete_events" '
+            .name = "Jellyfin"
+            | .onDownload = true
+            | .onUpgrade = true
+            | reduce $deletes[] as $event (.; .[$event] = true)
+            | (.fields[] | select(.name == "host")).value = "jellyfin"
+            | (.fields[] | select(.name == "port")).value = 8096
+            | (.fields[] | select(.name == "apiKey")).value = $key
+            | (.fields[] | select(.name == "useSsl")).value = false
+            | (.fields[] | select(.name == "updateLibrary")).value = true
+            | (.fields[] | select(.name == "mapFrom")).value = "/data/media/"
+            | (.fields[] | select(.name == "mapTo")).value = "/data/"
+          ')
+
+          result=$(arr_post "$app" notification "$notification")
+          if echo "$result" | $JQ -e '.id' >/dev/null 2>&1; then
+            echo "  $label -> Jellyfin: configured"
           else
-            echo "  $display_name -> Jellyfin: already configured"
+            echo "  $label -> Jellyfin: error - $(arr_error_of "$result")"
           fi
         }
 
-        # Sonarr -> Jellyfin
-        if [ -n "$JELLYFIN_API" ] && wait_for_app_pod "sonarr"; then
-          EXISTING=$($KUBECTL exec -n ${ns} deploy/sonarr -- \
-            ${curl} -s "http://localhost:8989/api/v3/notification" \
-            -H "X-Api-Key: $SONARR_API" 2>/dev/null | $JQ '.[] | select(.name == "Jellyfin")' || echo "")
-
-          if [ -z "$EXISTING" ]; then
-            SCHEMA=$($KUBECTL exec -n ${ns} deploy/sonarr -- \
-              ${curl} -s "http://localhost:8989/api/v3/notification/schema" \
-              -H "X-Api-Key: $SONARR_API" 2>/dev/null | $JQ '.[] | select(.implementation == "MediaBrowser")' || echo "")
-
-            if [ -n "$SCHEMA" ]; then
-              NOTIFICATION=$(echo "$SCHEMA" | $JQ '
-                .name = "Jellyfin" |
-                .onDownload = true |
-                .onUpgrade = true |
-                .onSeriesDelete = true |
-                .onEpisodeFileDelete = true |
-                (.fields[] | select(.name == "host")).value = "jellyfin" |
-                (.fields[] | select(.name == "port")).value = 8096 |
-                (.fields[] | select(.name == "apiKey")).value = "'"$JELLYFIN_API"'" |
-                (.fields[] | select(.name == "useSsl")).value = false |
-                (.fields[] | select(.name == "updateLibrary")).value = true |
-                (.fields[] | select(.name == "mapFrom")).value = "/data/media/" |
-                (.fields[] | select(.name == "mapTo")).value = "/data/"
-              ')
-
-              RESULT=$($KUBECTL exec -n ${ns} deploy/sonarr -- \
-                ${curl} -s -X POST "http://localhost:8989/api/v3/notification" \
-                -H "X-Api-Key: $SONARR_API" \
-                -H "Content-Type: application/json" \
-                -d "$NOTIFICATION" 2>/dev/null)
-
-              if echo "$RESULT" | $JQ -e '.id' >/dev/null 2>&1; then
-                echo "  Sonarr -> Jellyfin: configured"
-              else
-                echo "  Sonarr -> Jellyfin: Error"
-              fi
-            fi
-          else
-            update_notification_key "sonarr" "8989" "$SONARR_API" "Sonarr" "$EXISTING"
-          fi
-        fi
-
-        # Radarr -> Jellyfin
-        if [ -n "$JELLYFIN_API" ] && wait_for_app_pod "radarr"; then
-          EXISTING=$($KUBECTL exec -n ${ns} deploy/radarr -- \
-            ${curl} -s "http://localhost:7878/api/v3/notification" \
-            -H "X-Api-Key: $RADARR_API" 2>/dev/null | $JQ '.[] | select(.name == "Jellyfin")' || echo "")
-
-          if [ -z "$EXISTING" ]; then
-            SCHEMA=$($KUBECTL exec -n ${ns} deploy/radarr -- \
-              ${curl} -s "http://localhost:7878/api/v3/notification/schema" \
-              -H "X-Api-Key: $RADARR_API" 2>/dev/null | $JQ '.[] | select(.implementation == "MediaBrowser")' || echo "")
-
-            if [ -n "$SCHEMA" ]; then
-              NOTIFICATION=$(echo "$SCHEMA" | $JQ '
-                .name = "Jellyfin" |
-                .onDownload = true |
-                .onUpgrade = true |
-                .onMovieDelete = true |
-                .onMovieFileDelete = true |
-                (.fields[] | select(.name == "host")).value = "jellyfin" |
-                (.fields[] | select(.name == "port")).value = 8096 |
-                (.fields[] | select(.name == "apiKey")).value = "'"$JELLYFIN_API"'" |
-                (.fields[] | select(.name == "useSsl")).value = false |
-                (.fields[] | select(.name == "updateLibrary")).value = true |
-                (.fields[] | select(.name == "mapFrom")).value = "/data/media/" |
-                (.fields[] | select(.name == "mapTo")).value = "/data/"
-              ')
-
-              RESULT=$($KUBECTL exec -n ${ns} deploy/radarr -- \
-                ${curl} -s -X POST "http://localhost:7878/api/v3/notification" \
-                -H "X-Api-Key: $RADARR_API" \
-                -H "Content-Type: application/json" \
-                -d "$NOTIFICATION" 2>/dev/null)
-
-              if echo "$RESULT" | $JQ -e '.id' >/dev/null 2>&1; then
-                echo "  Radarr -> Jellyfin: configured"
-              else
-                echo "  Radarr -> Jellyfin: Error"
-              fi
-            fi
-          else
-            update_notification_key "radarr" "7878" "$RADARR_API" "Radarr" "$EXISTING"
-          fi
-        fi
-
-        # Sonarr ES -> Jellyfin
-        if [ -n "$JELLYFIN_API" ] && [ -n "$SONARR_ES_API" ] && wait_for_app_pod "sonarr-es"; then
-          EXISTING=$($KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-            ${curl} -s "http://localhost:8989/api/v3/notification" \
-            -H "X-Api-Key: $SONARR_ES_API" 2>/dev/null | $JQ '.[] | select(.name == "Jellyfin")' || echo "")
-
-          if [ -z "$EXISTING" ]; then
-            SCHEMA=$($KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-              ${curl} -s "http://localhost:8989/api/v3/notification/schema" \
-              -H "X-Api-Key: $SONARR_ES_API" 2>/dev/null | $JQ '.[] | select(.implementation == "MediaBrowser")' || echo "")
-            if [ -n "$SCHEMA" ]; then
-              NOTIFICATION=$(echo "$SCHEMA" | $JQ '
-                .name = "Jellyfin" | .onDownload = true | .onUpgrade = true |
-                .onSeriesDelete = true | .onEpisodeFileDelete = true |
-                (.fields[] | select(.name == "host")).value = "jellyfin" |
-                (.fields[] | select(.name == "port")).value = 8096 |
-                (.fields[] | select(.name == "apiKey")).value = "'"$JELLYFIN_API"'" |
-                (.fields[] | select(.name == "useSsl")).value = false |
-                (.fields[] | select(.name == "updateLibrary")).value = true |
-                (.fields[] | select(.name == "mapFrom")).value = "/data/media/" |
-                (.fields[] | select(.name == "mapTo")).value = "/data/"')
-              $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-                ${curl} -s -X POST "http://localhost:8989/api/v3/notification" \
-                -H "X-Api-Key: $SONARR_ES_API" \
-                -H "Content-Type: application/json" -d "$NOTIFICATION" >/dev/null 2>&1
-              echo "  Sonarr ES -> Jellyfin: configured"
-            fi
-          else
-            update_notification_key "sonarr-es" "8989" "$SONARR_ES_API" "Sonarr ES" "$EXISTING"
-          fi
-        fi
-
-        # Radarr ES -> Jellyfin
-        if [ -n "$JELLYFIN_API" ] && [ -n "$RADARR_ES_API" ] && wait_for_app_pod "radarr-es"; then
-          EXISTING=$($KUBECTL exec -n ${ns} deploy/radarr-es -- \
-            ${curl} -s "http://localhost:7878/api/v3/notification" \
-            -H "X-Api-Key: $RADARR_ES_API" 2>/dev/null | $JQ '.[] | select(.name == "Jellyfin")' || echo "")
-
-          if [ -z "$EXISTING" ]; then
-            SCHEMA=$($KUBECTL exec -n ${ns} deploy/radarr-es -- \
-              ${curl} -s "http://localhost:7878/api/v3/notification/schema" \
-              -H "X-Api-Key: $RADARR_ES_API" 2>/dev/null | $JQ '.[] | select(.implementation == "MediaBrowser")' || echo "")
-            if [ -n "$SCHEMA" ]; then
-              NOTIFICATION=$(echo "$SCHEMA" | $JQ '
-                .name = "Jellyfin" | .onDownload = true | .onUpgrade = true |
-                .onMovieDelete = true | .onMovieFileDelete = true |
-                (.fields[] | select(.name == "host")).value = "jellyfin" |
-                (.fields[] | select(.name == "port")).value = 8096 |
-                (.fields[] | select(.name == "apiKey")).value = "'"$JELLYFIN_API"'" |
-                (.fields[] | select(.name == "useSsl")).value = false |
-                (.fields[] | select(.name == "updateLibrary")).value = true |
-                (.fields[] | select(.name == "mapFrom")).value = "/data/media/" |
-                (.fields[] | select(.name == "mapTo")).value = "/data/"')
-              $KUBECTL exec -n ${ns} deploy/radarr-es -- \
-                ${curl} -s -X POST "http://localhost:7878/api/v3/notification" \
-                -H "X-Api-Key: $RADARR_ES_API" \
-                -H "Content-Type: application/json" -d "$NOTIFICATION" >/dev/null 2>&1
-              echo "  Radarr ES -> Jellyfin: configured"
-            fi
-          else
-            update_notification_key "radarr-es" "7878" "$RADARR_ES_API" "Radarr ES" "$EXISTING"
-          fi
-        fi
+        ${lib.concatMapStringsSep "\n        " notificationCall notificationTargets}
 
         echo ""
         echo "=== Jellyfin integration configured ==="
