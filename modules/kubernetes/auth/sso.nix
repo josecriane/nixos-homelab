@@ -449,45 +449,6 @@ in
                 }}
 
                 # ============================================
-                # CREATE FORWARDAUTH PROXY PROVIDERS
-                # ============================================
-                echo ""
-                echo "Creating ForwardAuth proxy providers..."
-
-                # Get or create the proxy outpost. The blueprint owns its provider list.
-                OUTPOST_PK=$($CURL -s "$API/outposts/instances/?type=proxy" -H "$AUTH" | $JQ -r '.results[0].pk // empty')
-                if [ -z "$OUTPOST_PK" ]; then
-                  echo "Creating proxy outpost..."
-                  SERVICE_CONNECTION_PK=$($CURL -s "$API/outposts/service_connections/all/?name=authentik%20Embedded%20Outpost" -H "$AUTH" | $JQ -r '.results[0].pk // empty')
-                  if [ -z "$SERVICE_CONNECTION_PK" ]; then
-                    SERVICE_CONNECTION_PK=$($CURL -s "$API/outposts/service_connections/all/" -H "$AUTH" | $JQ -r '.results[0].pk // empty')
-                  fi
-                  OUTPOST_RESPONSE=$($CURL -s -X POST "$API/outposts/instances/" -H "$AUTH" -H "Content-Type: application/json" \
-                    -d "{
-                      \"name\": \"Proxy Outpost\",
-                      \"type\": \"proxy\",
-                      \"service_connection\": \"$SERVICE_CONNECTION_PK\",
-                      \"config\": {
-                        \"authentik_host\": \"https://$(hostname auth)/\",
-                        \"log_level\": \"info\"
-                      }
-                    }")
-                  OUTPOST_PK=$(echo "$OUTPOST_RESPONSE" | $JQ -r '.pk // empty')
-                  if [ -n "$OUTPOST_PK" ]; then
-                    echo "Outpost created: $OUTPOST_PK"
-                  else
-                    echo "WARN: Could not create proxy outpost"
-                  fi
-                else
-                  echo "Existing outpost: $OUTPOST_PK"
-                  CURRENT_HOST=$($CURL -s "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" | $JQ -r '.config.authentik_host // empty')
-                  if [ -z "$CURRENT_HOST" ]; then
-                    $CURL -s -X PATCH "$API/outposts/instances/$OUTPOST_PK/" -H "$AUTH" -H "Content-Type: application/json" \
-                      -d "{\"config\": {\"authentik_host\": \"https://$(hostname auth)/\"}}" > /dev/null
-                  fi
-                fi
-
-                # ============================================
                 # SAVE CREDENTIALS
                 # ============================================
                 AUTHENTIK_URL="https://$(hostname auth)"
