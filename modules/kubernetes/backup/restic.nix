@@ -13,7 +13,6 @@
 let
   kubectl = "${pkgs.kubectl}/bin/kubectl";
   restic = "${pkgs.restic}/bin/restic";
-  gzip = "${pkgs.gzip}/bin/gzip";
   gunzip = "${pkgs.gzip}/bin/gunzip";
   jq = "${pkgs.jq}/bin/jq";
   sqlite = "${pkgs.sqlite}/bin/sqlite3";
@@ -220,36 +219,45 @@ let
           if ${kubectl} get ${getTarget} -n ${pg.ns} >/dev/null 2>&1; then
             DUMP_ERR=$(mktemp)
             DUMP_TMP="${dumpDir}/${pg.db}.sql.gz.tmp"
-            set +e
-            ${kubectl} exec -n ${pg.ns} ${execTarget} -- \
-              sh -c 'export PGPASSWORD="''${POSTGRES_PASSWORD:-$(cat "''${POSTGRES_PASSWORD_FILE:-/dev/null}" 2>/dev/null)}"; exec pg_dump -U ${pg.user} -d ${pg.db}' \
-              2>"$DUMP_ERR" | ${gzip} > "$DUMP_TMP"
-            DUMP_RC=''${PIPESTATUS[0]}
-            set -e
+            DUMP_OK=0
 
-            set +o pipefail
-            DUMP_HEAD=$(${gunzip} -c "$DUMP_TMP" 2>/dev/null | head -c 512)
-            set -o pipefail
+            for DUMP_TRY in 1 2 3; do
+              set +e
+              ${kubectl} exec -n ${pg.ns} ${execTarget} -- \
+                sh -c 'export PGPASSWORD="''${POSTGRES_PASSWORD:-$(cat "''${POSTGRES_PASSWORD_FILE:-/dev/null}" 2>/dev/null)}"; pg_dump -U ${pg.user} -d ${pg.db} | gzip' \
+                2>"$DUMP_ERR" > "$DUMP_TMP"
+              DUMP_RC=$?
+              set -e
 
-            case "$DUMP_HEAD" in
-              *"PostgreSQL database dump"*) DUMP_VALID=1 ;;
-              *) DUMP_VALID=0 ;;
-            esac
+              set +o pipefail
+              DUMP_TAIL=$(${gunzip} -c "$DUMP_TMP" 2>/dev/null | tail -c 200)
+              set -o pipefail
 
-            if [ "$DUMP_RC" -ne 0 ]; then
-              echo "  ERROR: pg_dump for ${pg.db} exited $DUMP_RC:"
+              case "$DUMP_TAIL" in
+                *"PostgreSQL database dump complete"*) DUMP_OK=1 ;;
+                *) DUMP_OK=0 ;;
+              esac
+
+              if [ "$DUMP_RC" -eq 0 ] && [ "$DUMP_OK" -eq 1 ]; then
+                break
+              fi
+
+              DUMP_OK=0
+              echo "  attempt $DUMP_TRY for ${pg.db} did not finish (exit $DUMP_RC):"
               sed 's/^/    /' "$DUMP_ERR"
-              rm -f "$DUMP_TMP"
-              FAILED=$((FAILED + 1))
-            elif [ "$DUMP_VALID" -eq 0 ]; then
-              echo "  ERROR: dump for ${pg.db} is empty or truncated, keeping previous copy"
-              sed 's/^/    /' "$DUMP_ERR"
-              rm -f "$DUMP_TMP"
-              FAILED=$((FAILED + 1))
-            else
+              if [ "$DUMP_TRY" -lt 3 ]; then
+                sleep 30
+              fi
+            done
+
+            if [ "$DUMP_OK" -eq 1 ]; then
               mv "$DUMP_TMP" "${dumpDir}/${pg.db}.sql.gz"
               chmod 0600 "${dumpDir}/${pg.db}.sql.gz"
               echo "  ${pg.db}: $(du -h "${dumpDir}/${pg.db}.sql.gz" | cut -f1)"
+            else
+              echo "  ERROR: ${pg.db} produced no complete dump in 3 attempts, keeping the previous copy"
+              rm -f "$DUMP_TMP"
+              FAILED=$((FAILED + 1))
             fi
             rm -f "$DUMP_ERR"
           else
