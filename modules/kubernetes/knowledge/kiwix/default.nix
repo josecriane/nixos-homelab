@@ -167,11 +167,11 @@ lib.recursiveUpdate release {
         download_latest_zim "other" "librepathology_en_all_maxi"
 
         # === Survival & Preparedness ===
-        download_latest_zim "videos" "canadian_prepper_winterprepping_en"
-        download_latest_zim "videos" "canadian_prepper_bugoutroll_en"
-        download_latest_zim "videos" "canadian_prepper_bugoutconcepts_en"
+        download_latest_zim "videos" "canadian-prepper_en_winterprepping"
+        download_latest_zim "videos" "canadian-prepper_en_bugoutroll"
+        download_latest_zim "videos" "canadian-prepper_en_bugoutconcepts"
         download_latest_zim "videos" "urban-prepper_en_all"
-        download_latest_zim "videos" "canadian_prepper_preppingfood_en"
+        download_latest_zim "videos" "canadian-prepper_en_preppingfood"
         download_latest_zim "gutenberg" "gutenberg_en_lcc-u"
 
         # === Education (Essential only) ===
