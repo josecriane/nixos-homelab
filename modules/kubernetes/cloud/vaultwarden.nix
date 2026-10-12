@@ -9,7 +9,7 @@
 let
   ns = "vaultwarden";
   markerFile = "/var/lib/vaultwarden-setup-done";
-  chartVersion = "0.46.2";
+  chartVersion = "0.46.3";
   credSecretName = "vaultwarden-admin-credentials";
   tokenSecretName = "vaultwarden-admin-token";
   ssoSecretName = "authentik-sso-credentials";
