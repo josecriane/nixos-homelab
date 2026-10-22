@@ -15,6 +15,9 @@ let
   qbitMaxActiveDownloads = toString (qbitCfg.maxActiveDownloads or 5);
   qbitMaxActiveTorrents = toString (qbitCfg.maxActiveTorrents or 10);
   qbitMaxActiveUploads = toString (qbitCfg.maxActiveUploads or 3);
+  qbitEncryption = toString (qbitCfg.encryption or 1);
+  qbitMaxRatio = toString (qbitCfg.maxRatio or 2.0);
+  qbitMaxRatioAction = toString (qbitCfg.maxRatioAction or 0);
 
   clients = [
     {
@@ -150,12 +153,12 @@ in
                 "dont_count_slow_torrents": true,
                 "upnp": false,
                 "max_ratio_enabled": true,
-                "max_ratio": 2.0,
-                "max_ratio_act": 0,
+                "max_ratio": ${qbitMaxRatio},
+                "max_ratio_act": ${qbitMaxRatioAction},
                 "max_seeding_time_enabled": false,
                 "max_seeding_time": -1,
                 "anonymous_mode": false,
-                "encryption": 1,
+                "encryption": ${qbitEncryption},
                 "add_trackers_enabled": false
               }' 2>/dev/null
             echo "  qBittorrent: preferences configured (TMM, save_path, queue)"
