@@ -25,6 +25,10 @@ let
 
   configJson = builtins.toJSON {
     inherit (cfg) groupNames noStop hide;
+    machines = lib.mapAttrsToList (name: m: {
+      inherit name;
+      inherit (m) powerControl;
+    }) cfg.machines;
   };
 
   switchboardPkgs = switchboard.packages.${pkgs.system};
@@ -107,6 +111,19 @@ in
       default = [ ];
       description = "Namespaces to hide entirely from the UI.";
     };
+    machines = lib.mkOption {
+      type = lib.types.attrsOf (
+        lib.types.submodule {
+          options.powerControl = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+            description = "Show the on/auto/off switch. A controller must honor the switchboard-power ConfigMap.";
+          };
+        }
+      );
+      default = { };
+      description = "Physical machines shown in the Machines tab, keyed by node name. Every cluster node is listed by default.";
+    };
   };
 
   config = {
@@ -138,6 +155,7 @@ in
         "switchboard/switchboard"
       ];
       hide = [ "default" ];
+      machines = lib.mapAttrs (_: _: { }) serverConfig.nodes;
     };
 
     systemd.services = lib.mkMerge [
