@@ -57,6 +57,17 @@
     adminEmail = "admin@home.example.com";
     # ldap = { enable = false; };
 
+    # Google as a login source. Users log in with their Google account and
+    # authentik links it to the existing user with the same email. Create the
+    # OAuth client in Google Cloud with the redirect URI
+    # https://auth.<subdomain>.<domain>/source/oauth/callback/google/ and store
+    # its secret under secrets/authentik-google-client-secret.age.
+    # google = {
+    #   enable = true;
+    #   clientId = "1234567890-abc.apps.googleusercontent.com";
+    #   allowEnrollment = false;
+    # };
+
     # Declarative bootstrap users. Each user is created via the Authentik API
     # with the password read from agenix. The key name is the username. Store
     # each password under secrets/<passwordSecret>.age.

@@ -50,6 +50,9 @@ in
     ++ lib.optionals (authentikOn && (serverConfig.authentik.ldap.enable or false)) [
       ./ldap.nix
     ]
+    ++ lib.optionals (authentikOn && (serverConfig.authentik.google.enable or false)) [
+      ./google-source.nix
+    ]
     ++ lib.optionals (authentikOn && (serverConfig.authentik.bootstrapUsers or { }) != { }) [
       ./authentik-users.nix
     ];

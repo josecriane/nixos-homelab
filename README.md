@@ -296,6 +296,32 @@ Passwords are only set on first creation. To rotate afterwards, either delete th
 
 **Manual (ad-hoc).** Log in as `akadmin` at `https://auth.<subdomain>.<domain>` (password in the `authentik-setup-credentials` K8s secret / Vaultwarden), then **Admin Interface > Directory > Users > Create** and assign groups under **Directory > Groups**.
 
+### Login with Google
+
+Authentik can show a Google button on the login page. Google authenticates the user. Authentik keeps the authorization: groups, application access and policies do not change, and every service still talks OIDC to authentik.
+
+1. In Google Cloud, create an OAuth client of type "Web application". Set the authorized redirect URI to `https://auth.<subdomain>.<domain>/source/oauth/callback/google/`.
+2. Store the client secret:
+
+   ```bash
+   agenix -e secrets/authentik-google-client-secret.age
+   ```
+
+3. Enable the source in `config.nix`:
+
+   ```nix
+   authentik.google = {
+     enable = true;
+     clientId = "1234567890-abc.apps.googleusercontent.com";
+   };
+   ```
+
+Then `make deploy`. The `authentik-google-source-setup` service creates the source and adds it to the identification stage of the default authentication flow. It runs again when the client id, the secret or `allowEnrollment` change.
+
+A Google account is linked to the authentik user with the same email on the first login. A Google account with no matching user is denied. Set `allowEnrollment = true` to let it create a new user instead. The new user has no groups until an admin adds them.
+
+The password login stays active. If Google is down or the OAuth client is revoked, `akadmin` and the bootstrap users can still log in.
+
 ### Groups
 
 These groups are created automatically during setup:

@@ -69,6 +69,17 @@ in
             default = { };
             type = freeform { enable = bool defaults.authentik.ldap.enable; };
           };
+          google = mkOption {
+            default = { };
+            type = freeform {
+              enable = bool defaults.authentik.google.enable;
+              clientId = mkOption {
+                type = types.str;
+                default = defaults.authentik.google.clientId;
+              };
+              allowEnrollment = bool defaults.authentik.google.allowEnrollment;
+            };
+          };
           bootstrapUsers = mkOption {
             type = types.attrs;
             default = defaults.authentik.bootstrapUsers;

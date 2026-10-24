@@ -26,6 +26,11 @@
 
   authentik = {
     ldap.enable = false;
+    google = {
+      enable = false;
+      clientId = "";
+      allowEnrollment = false;
+    };
     bootstrapUsers = { };
   };
 
