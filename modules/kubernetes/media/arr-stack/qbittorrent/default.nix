@@ -13,6 +13,7 @@
 }:
 
 let
+  paths = import ../../../media-paths.nix { inherit lib k8s serverConfig; };
 
   release = k8s.createHelmRelease {
     name = "qbittorrent";
@@ -21,6 +22,7 @@ let
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
     valuesFile = ./values.yaml;
+    values = lib.optionalAttrs (paths.secondary != [ ]) { persistence = paths.persistence; };
     waitFor = "qbittorrent";
     ingress = {
       host = "qbit";

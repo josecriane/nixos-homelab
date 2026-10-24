@@ -65,6 +65,8 @@ Media services share a `shared-data` PVC following the TRaSH Guides folder struc
   media/{movies,tv,music,books}
 ```
 
+Each secondary NAS with `mediaPaths` adds a `shared-data-<hostname>` PVC on `/mnt/<hostname>`, mounted at `/data/<hostname>` in qBittorrent and the importers. The paths it lists resolve under that mount, so hardlinks between `torrents/` and `media/` stay on one filesystem.
+
 ## Authentication
 
 - **SSO (Authentik OIDC)**: Jellyseerr, Jellyfin, Grafana, Nextcloud, Immich, Vaultwarden

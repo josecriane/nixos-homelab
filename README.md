@@ -364,6 +364,8 @@ Media services follow the [TRaSH Guides](https://trash-guides.info/) folder stru
   media/{movies,tv,music,books}
 ```
 
+A secondary NAS with `mediaPaths` is mounted once per pod at `/data/<hostname>`, through its own `shared-data-<hostname>` PVC. The paths it lists live there, for example `/data/nas2/torrents/books` and `/data/nas2/media/books`. qBittorrent categories, arr root folders and importers use these paths, so a download and its library copy share one mount and hardlinks work.
+
 ## Sudo Hardening (optional)
 
 By default, the admin user has passwordless sudo. To require a password for most commands (while keeping `nixos-rebuild`, `systemctl`, `journalctl`, and `kubectl` passwordless):

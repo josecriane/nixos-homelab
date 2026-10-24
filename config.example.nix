@@ -106,7 +106,7 @@
     #   nfsExports = {
     #     nfsPath = "/";
     #   };
-    #   # Paths bind-mounted into /mnt/nas1/ so services see them transparently
+    #   # TRaSH paths stored on this NAS. Pods see them under /data/<hostname>/
     #   mediaPaths = [ "media/books" "media/music" "torrents/books" "torrents/music" "backups" ];
     #   # Cloud storage paths (NAS-backed PVs for cloud services, stored on specific disk)
     #   cloudPaths = {

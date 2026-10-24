@@ -2,11 +2,13 @@
   k8s,
   lib,
   pkgs,
+  serverConfig,
   ...
 }:
 
 let
   arr = import ./arr-lib.nix { inherit lib; };
+  paths = import ../media-paths.nix { inherit lib k8s serverConfig; };
   markerFile = "/var/lib/arr-root-folders-setup-done";
 
   folders = [
@@ -20,7 +22,7 @@ let
     }
     {
       app = "lidarr";
-      path = "/data/media/music";
+      path = paths.mediaPath "media/music";
       extra = {
         name = "Music";
         defaultMetadataProfileId = 1;
@@ -37,7 +39,7 @@ let
     }
     {
       app = "bookshelf";
-      path = "/data/media/books";
+      path = paths.mediaPath "media/books";
       extra = {
         name = "Books";
         defaultQualityProfileId = 1;

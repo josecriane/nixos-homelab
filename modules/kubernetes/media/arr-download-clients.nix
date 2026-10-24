@@ -3,13 +3,22 @@
   config,
   lib,
   pkgs,
+  serverConfig,
   ...
 }:
 
 let
   arr = import ./arr-lib.nix { inherit lib; };
+  paths = import ../media-paths.nix { inherit lib k8s serverConfig; };
   ns = arr.ns;
   markerFile = "/var/lib/arr-download-clients-setup-done";
+
+  qbitCategories = map (name: "${name}:${paths.mediaPath "torrents/${name}"}") [
+    "tv"
+    "movies"
+    "music"
+    "books"
+  ];
 
   qbitCfg = config.homelab.qbittorrent;
   qbitMaxActiveDownloads = toString (qbitCfg.maxActiveDownloads or 5);
@@ -164,13 +173,16 @@ in
             echo "  qBittorrent: preferences configured (TMM, save_path, queue)"
 
             # 2. Create categories with save paths (TRaSH Guides structure)
-            for cat_def in "tv:/data/torrents/tv" "movies:/data/torrents/movies" "music:/data/torrents/music" "books:/data/torrents/books"; do
+            for cat_def in ${lib.concatMapStringsSep " " lib.escapeShellArg qbitCategories}; do
               IFS=':' read -r cat_name cat_path <<< "$cat_def"
               $KUBECTL exec -n ${ns} deploy/qbittorrent -- \
                 curl -s $QBIT_COOKIE "http://localhost:8080/api/v2/torrents/createCategory" \
                 -d "category=$cat_name&savePath=$cat_path" 2>/dev/null
+              $KUBECTL exec -n ${ns} deploy/qbittorrent -- \
+                curl -s $QBIT_COOKIE "http://localhost:8080/api/v2/torrents/editCategory" \
+                -d "category=$cat_name&savePath=$cat_path" 2>/dev/null
             done
-            echo "  qBittorrent: categories created (tv, movies, music, books)"
+            echo "  qBittorrent: categories configured (${lib.concatStringsSep ", " qbitCategories})"
           else
             echo "  qBittorrent: ERROR - Could not authenticate with the API"
           fi
