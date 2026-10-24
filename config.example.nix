@@ -51,6 +51,21 @@
     # collection. Turn it off if the bitwarden-cli in your nixpkgs is
     # newer than the API your Vaultwarden release implements.
     # sync = { enable = true; };
+    # Services declared outside this repository can join the sync. Each entry
+    # names the K8s Secret and which keys hold the username, password and URL;
+    # noteKeys are copied into the item notes and unit is the setup service to
+    # wait for.
+    # sync.extraServices = [
+    #   {
+    #     name = "Suwayomi";
+    #     namespace = "media";
+    #     secret = "suwayomi-credentials";
+    #     userKey = "AUTH_USERNAME";
+    #     passwordKey = "AUTH_PASSWORD";
+    #     urlKey = "URL";
+    #     unit = "suwayomi-setup.service";
+    #   }
+    # ];
   };
 
   authentik = {

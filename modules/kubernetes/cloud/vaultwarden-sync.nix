@@ -8,11 +8,26 @@
 
 let
   markerFile = "/var/lib/vaultwarden-sync-setup-done";
+  extraServices = config.homelab.vaultwarden.sync.extraServices or [ ];
+  extraUnits = lib.filter (u: u != "") (map (s: s.unit) extraServices);
+  syncExtra =
+    s:
+    lib.concatMapStringsSep " " lib.escapeShellArg (
+      [
+        s.name
+        s.namespace
+        s.secret
+        s.userKey
+        s.passwordKey
+        s.urlKey
+      ]
+      ++ s.noteKeys
+    );
 in
 {
   systemd.services.vaultwarden-sync-setup = {
     description = "Sync K8s credential secrets to Vaultwarden";
-    after = [
+    after = extraUnits ++ [
       "k3s-apps.target"
       "vaultwarden-admin-setup.service"
       "vaultwarden-sso-setup.service"
@@ -25,7 +40,7 @@ in
       "k3s-apps.target"
       "vaultwarden-admin-setup.service"
     ];
-    wants = [
+    wants = extraUnits ++ [
       "vaultwarden-sso-setup.service"
       "syncthing-setup.service"
       "jellyseerr-oidc-config.service"
@@ -203,6 +218,7 @@ in
         # Monitoring
         sync_service "Grafana" "monitoring" "grafana-admin-credentials" \
           "ADMIN_USER" "ADMIN_PASSWORD" ""
+        ${lib.concatMapStringsSep "\n" (s: "sync_service ${syncExtra s}") extraServices}
         $BW logout 2>/dev/null || true
 
         print_success "Vaultwarden Sync" \

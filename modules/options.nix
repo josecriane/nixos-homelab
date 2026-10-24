@@ -57,7 +57,41 @@ in
         type = freeform {
           sync = mkOption {
             default = { };
-            type = freeform { enable = bool defaults.vaultwarden.sync.enable; };
+            type = freeform {
+              enable = bool defaults.vaultwarden.sync.enable;
+              extraServices = mkOption {
+                default = [ ];
+                type = types.listOf (
+                  types.submodule {
+                    options = {
+                      name = mkOption { type = types.str; };
+                      namespace = mkOption { type = types.str; };
+                      secret = mkOption { type = types.str; };
+                      userKey = mkOption {
+                        type = types.str;
+                        default = "";
+                      };
+                      passwordKey = mkOption {
+                        type = types.str;
+                        default = "";
+                      };
+                      urlKey = mkOption {
+                        type = types.str;
+                        default = "";
+                      };
+                      noteKeys = mkOption {
+                        type = types.listOf types.str;
+                        default = [ ];
+                      };
+                      unit = mkOption {
+                        type = types.str;
+                        default = "";
+                      };
+                    };
+                  }
+                );
+              };
+            };
           };
         };
       };
