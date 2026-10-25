@@ -162,8 +162,16 @@ lib.recursiveUpdate release {
         if [ -z "$TOKEN" ]; then
           echo "WARN: Could not obtain Kavita token, skipping library configuration"
         else
-          API_KEY=$(echo "''${LOGIN_RESPONSE}''${REGISTER_RESPONSE}" | $JQ -r '.apiKey // empty' 2>/dev/null || echo "" | head -1)
           AUTH="Authorization: Bearer $TOKEN"
+
+          API_KEY=$($CURL -s "$KAVITA_API/Account/auth-keys" -H "$AUTH" 2>/dev/null \
+            | $JQ -r '.[] | select(.name == "homelab") | .key' 2>/dev/null | head -1)
+          if [ -z "$API_KEY" ]; then
+            echo "Creating the homelab auth key..."
+            API_KEY=$($CURL -s -X POST "$KAVITA_API/Account/create-auth-key" \
+              -H "$AUTH" -H "Content-Type: application/json" \
+              -d '{"keyLength": 32, "name": "homelab"}' 2>/dev/null | $JQ -r '.key // empty' 2>/dev/null)
+          fi
 
           EXISTING_LIBS=$($CURL -s "$KAVITA_API/Library/libraries" -H "$AUTH" 2>/dev/null || echo "[]")
 
