@@ -38,6 +38,8 @@ let
       memReq ? "128Mi",
       memLim ? "512Mi",
       dashboard ? null,
+      cardType ? null,
+      cardPaths ? [ ],
       extraAfter ? [ ],
     }:
     let
@@ -155,6 +157,27 @@ let
           url = "https://${k8s.hostname ingressHost}";
           tag = dashboard.tag or null;
           sort = dashboard.sort or 100;
+          workload = {
+            namespace = "media";
+            inherit name;
+          };
+          card =
+            if cardType == null then
+              null
+            else
+              {
+                type = cardType;
+                service = {
+                  namespace = "media";
+                  inherit name port;
+                };
+                paths = cardPaths;
+                apiKey = {
+                  secret = apiKeySecret;
+                  key = "api-key";
+                  header = "X-Api-Key";
+                };
+              };
         };
       };
     };

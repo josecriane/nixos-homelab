@@ -93,6 +93,63 @@ in
                 );
                 default = null;
               };
+              workload = mkOption {
+                description = ''
+                  Deployment or StatefulSet behind the entry, as `{ namespace, name }`.
+                  The dashboard hides the entry while the workload has zero
+                  replicas, and uses it for the status dot when `ping` is unset.
+                '';
+                type = types.nullOr (
+                  types.submodule {
+                    options = {
+                      namespace = mkOption { type = types.str; };
+                      name = mkOption { type = types.str; };
+                    };
+                  }
+                );
+                default = null;
+              };
+              card = mkOption {
+                description = ''
+                  Homer smart card fed through a GET-only proxy on the dashboard
+                  host. `paths` are the API paths the card reads, `apiKey` names
+                  the secret whose value Traefik injects as `header`.
+                '';
+                type = types.nullOr (
+                  types.submodule {
+                    options = {
+                      type = mkOption { type = types.str; };
+                      service = mkOption {
+                        type = types.submodule {
+                          options = {
+                            namespace = mkOption { type = types.str; };
+                            name = mkOption { type = types.str; };
+                            port = mkOption { type = types.port; };
+                          };
+                        };
+                      };
+                      paths = mkOption { type = types.listOf types.str; };
+                      apiKey = mkOption {
+                        type = types.nullOr (
+                          types.submodule {
+                            options = {
+                              secret = mkOption { type = types.str; };
+                              key = mkOption { type = types.str; };
+                              header = mkOption { type = types.str; };
+                            };
+                          }
+                        );
+                        default = null;
+                      };
+                      extra = mkOption {
+                        type = types.attrsOf types.str;
+                        default = { };
+                      };
+                    };
+                  }
+                );
+                default = null;
+              };
               sort = mkOption {
                 description = "Order within the group, lowest first.";
                 type = types.int;

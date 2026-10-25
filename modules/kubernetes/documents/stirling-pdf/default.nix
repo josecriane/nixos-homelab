@@ -71,6 +71,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-file-pdf";
     subtitle = "PDF Tools";
     url = "https://${k8s.hostname "pdf"}";
+    workload = {
+      namespace = "extra";
+      name = "stirling-pdf";
+    };
     sort = 20;
   };
   sso.oidcApps = [

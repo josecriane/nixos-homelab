@@ -39,6 +39,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-download";
     subtitle = "Downloads";
     url = "https://${k8s.hostname "qbit"}";
+    workload = {
+      namespace = "media";
+      name = "qbittorrent";
+    };
     sort = 80;
   };
   systemd.services.qbittorrent-setup = {

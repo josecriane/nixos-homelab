@@ -38,6 +38,28 @@ lib.recursiveUpdate release {
     icon = "fas fa-music";
     subtitle = "Music";
     url = "https://${k8s.hostname "lidarr"}";
+    workload = {
+      namespace = "media";
+      name = "lidarr";
+    };
+    card = {
+      type = "Lidarr";
+      service = {
+        namespace = "media";
+        name = "lidarr";
+        port = 8686;
+      };
+      paths = [
+        "/api/v1/health"
+        "/api/v1/queue/status"
+        "/api/v1/wanted/missing"
+      ];
+      apiKey = {
+        secret = "lidarr-api-key";
+        key = "api-key";
+        header = "X-Api-Key";
+      };
+    };
     sort = 50;
   };
   systemd.services.lidarr-setup = {

@@ -35,6 +35,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-book";
     subtitle = "Ebooks";
     url = "https://${k8s.hostname "books"}";
+    workload = {
+      namespace = "media";
+      name = "bookshelf";
+    };
     sort = 90;
   };
   systemd.services.bookshelf-setup = {

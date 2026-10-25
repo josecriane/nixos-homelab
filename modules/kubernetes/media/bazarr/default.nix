@@ -35,6 +35,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-closed-captioning";
     subtitle = "Subtitles";
     url = "https://${k8s.hostname "bazarr"}";
+    workload = {
+      namespace = "media";
+      name = "bazarr";
+    };
     sort = 60;
   };
   systemd.services.bazarr-setup = {

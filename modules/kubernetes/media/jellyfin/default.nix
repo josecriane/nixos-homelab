@@ -91,6 +91,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-film";
     subtitle = "Media Server";
     url = "https://${k8s.hostname "jellyfin"}";
+    workload = {
+      namespace = "media";
+      name = "jellyfin";
+    };
     sort = 10;
   };
   systemd.services.jellyfin-setup = {

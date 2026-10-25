@@ -148,6 +148,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-map-marked-alt";
     subtitle = "Offline Maps";
     url = "https://${k8s.hostname "maps"}";
+    workload = {
+      namespace = "openstreetmap";
+      name = "openstreetmap";
+    };
     ping = {
       namespace = "openstreetmap";
       name = "openstreetmap";

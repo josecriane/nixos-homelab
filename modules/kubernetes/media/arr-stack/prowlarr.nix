@@ -17,6 +17,8 @@ helpers.mkArrRelease {
   configPvc = "prowlarr-config";
   apiKeySecret = "prowlarr-api-key";
   withSharedData = false;
+  cardType = "Prowlarr";
+  cardPaths = [ "/api/v1/health" ];
   dashboard = {
     title = "Prowlarr";
     icon = "fas fa-search-plus";

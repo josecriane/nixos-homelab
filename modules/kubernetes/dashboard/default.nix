@@ -21,6 +21,7 @@ in
   ]
   ++ lib.optionals (isBootstrap && (enabled "dashboard")) [
     ./homer
+    ./homer/proxy.nix
   ]
   ++ lib.optionals (enabled "switchboard") [
     ./switchboard.nix

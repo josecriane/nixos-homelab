@@ -119,6 +119,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-file-alt";
     subtitle = "Document Archive";
     url = "https://${k8s.hostname "paperless"}";
+    workload = {
+      namespace = "extra";
+      name = "paperless";
+    };
     sort = 10;
   };
   sso.oidcApps = [

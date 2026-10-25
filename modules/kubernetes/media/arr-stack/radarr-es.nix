@@ -18,6 +18,12 @@ helpers.mkArrRelease {
   apiKeySecret = "radarr-es-api-key";
   memReq = "256Mi";
   memLim = "2Gi";
+  cardType = "Radarr";
+  cardPaths = [
+    "/api/v3/health"
+    "/api/v3/queue"
+    "/api/v3/wanted/missing"
+  ];
   dashboard = {
     title = "Radarr ES";
     icon = "fas fa-video";

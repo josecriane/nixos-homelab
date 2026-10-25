@@ -25,6 +25,10 @@ in
     icon = "fas fa-images";
     subtitle = "Photo Backup";
     url = "https://${k8s.hostname "photos"}";
+    workload = {
+      namespace = "immich";
+      name = "immich-server";
+    };
     sort = 30;
   };
   systemd.services.immich-setup = {

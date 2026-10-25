@@ -43,6 +43,10 @@ lib.recursiveUpdate release {
     icon = "fab fa-wikipedia-w";
     subtitle = "Offline Knowledge";
     url = "https://${k8s.hostname "wiki"}";
+    workload = {
+      namespace = "kiwix";
+      name = "kiwix-serve";
+    };
     ping = {
       namespace = "kiwix";
       name = "kiwix-serve";

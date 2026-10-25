@@ -19,6 +19,10 @@ in
     icon = "fas fa-sync";
     subtitle = "File Sync";
     url = "https://${k8s.hostname "sync"}";
+    workload = {
+      namespace = "syncthing";
+      name = "syncthing";
+    };
     sort = 40;
   };
   systemd.services.syncthing-setup = {

@@ -59,7 +59,7 @@
 
 | Service | Description | URL Pattern |
 |---------|-------------|-------------|
-| Homarr | Application dashboard | `home.<subdomain>.<domain>` |
+| Homer | Application dashboard. Hides services scaled to zero; a header link shows them. | `home.<subdomain>.<domain>` |
 
 ## Backup
 
@@ -80,7 +80,7 @@ services = {
   media = false;       # Full media stack
   immich = false;      # Photo management
   syncthing = false;   # File sync
-  dashboard = true;    # Homarr
+  dashboard = true;    # Homer
   kiwix = false;       # Offline knowledge (Wikipedia, iFixit)
 };
 ```

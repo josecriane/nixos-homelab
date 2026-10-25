@@ -18,6 +18,12 @@ helpers.mkArrRelease {
   apiKeySecret = "sonarr-es-api-key";
   memReq = "256Mi";
   memLim = "2Gi";
+  cardType = "Sonarr";
+  cardPaths = [
+    "/api/v3/health"
+    "/api/v3/queue"
+    "/api/v3/wanted/missing"
+  ];
   dashboard = {
     title = "Sonarr ES";
     icon = "fas fa-tv";

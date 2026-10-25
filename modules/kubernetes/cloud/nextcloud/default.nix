@@ -232,6 +232,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-cloud";
     subtitle = "Cloud Storage";
     url = "https://${k8s.hostname "cloud"}";
+    workload = {
+      namespace = "nextcloud";
+      name = "nextcloud";
+    };
     sort = 20;
   };
 

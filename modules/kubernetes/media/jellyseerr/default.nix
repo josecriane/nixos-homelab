@@ -39,6 +39,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-search";
     subtitle = "Media Requests";
     url = "https://${k8s.hostname "requests"}";
+    workload = {
+      namespace = "media";
+      name = "jellyseerr";
+    };
     sort = 20;
   };
   systemd.services.jellyseerr-setup = {

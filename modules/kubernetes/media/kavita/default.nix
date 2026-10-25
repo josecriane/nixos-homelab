@@ -36,6 +36,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-book-reader";
     subtitle = "Manga/Comics";
     url = "https://${k8s.hostname "kavita"}";
+    workload = {
+      namespace = "media";
+      name = "kavita";
+    };
     sort = 30;
   };
   systemd.services.kavita-setup = {

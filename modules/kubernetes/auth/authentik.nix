@@ -94,6 +94,10 @@ lib.recursiveUpdate release {
     icon = "fas fa-shield-alt";
     subtitle = "SSO/Identity";
     url = "https://${k8s.hostname "auth"}";
+    workload = {
+      namespace = "authentik";
+      name = "authentik-server";
+    };
     sort = 20;
   };
   age.secrets.authentik-admin-password = {

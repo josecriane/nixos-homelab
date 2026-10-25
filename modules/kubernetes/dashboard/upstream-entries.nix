@@ -54,7 +54,7 @@ in
       icon = "fas fa-chart-area";
       subtitle = "Dashboards";
       url = "https://${k8s.hostname "grafana"}";
-      ping = ping "monitoring" "grafana";
+      ping = ping "monitoring" "kube-prometheus-stack-grafana";
       sort = 10;
     };
     prometheus = {
@@ -63,7 +63,15 @@ in
       icon = "fas fa-database";
       subtitle = "Metrics";
       url = "https://${k8s.hostname "prometheus"}";
-      ping = ping "monitoring" "prometheus-server";
+      card = {
+        type = "Prometheus";
+        service = {
+          namespace = "monitoring";
+          name = "kube-prometheus-stack-prometheus";
+          port = 9090;
+        };
+        paths = [ "/api/v1/alerts" ];
+      };
       sort = 20;
     };
     alertmanager = {
@@ -72,7 +80,6 @@ in
       icon = "fas fa-bell";
       subtitle = "Alerts";
       url = "https://${k8s.hostname "alertmanager"}";
-      ping = ping "monitoring" "alertmanager";
       sort = 30;
     };
   };

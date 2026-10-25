@@ -133,6 +133,10 @@ in
       icon = "fas fa-power-off";
       subtitle = "Start/Stop Services";
       url = "https://${k8s.hostname "services"}";
+      workload = {
+        namespace = "switchboard";
+        name = "switchboard";
+      };
       sort = 30;
     };
 

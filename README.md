@@ -69,7 +69,7 @@ All media services are enabled together with `media = true` in config.
 
 | Service | URL | What it does |
 |---------|-----|-------------|
-| [Homer](https://github.com/bastienwirtz/homer) | `home.*` | Application dashboard. Start page with links to all services. |
+| [Homer](https://github.com/bastienwirtz/homer) | `home.*` | Application dashboard. Each card shows the live state of its workload through Switchboard, the arr cards and Prometheus show activity through a GET-only proxy on the dashboard host, and services scaled to zero are hidden until the "Mostrar apagados" link in the header. |
 | [Restic](https://restic.net/) | timers | Encrypted backups. Daily critical backups and weekly full backups to NAS. |
 
 ### Infrastructure (no UI)
@@ -227,7 +227,7 @@ services = {
   media = false;       # Full media stack (Jellyfin + arr-stack)
   immich = false;      # Photo management
   syncthing = false;   # File sync
-  dashboard = true;    # Homarr dashboard
+  dashboard = true;    # Homer dashboard
   kiwix = false;       # Offline Wikipedia + iFixit
   paperless = false;   # Document manager with OCR
   stirling-pdf = false; # PDF toolbox
@@ -268,7 +268,7 @@ For `<service>.<subdomain>.<domain>` URLs to resolve over VPN, point your device
 
 ## User Management
 
-Users are managed through [Authentik](https://goauthentik.io/), the identity provider. All OIDC-integrated services (Jellyfin, Jellyseerr, Grafana, Nextcloud, Immich, Vaultwarden, Kavita, Homarr) use Authentik for login.
+Users are managed through [Authentik](https://goauthentik.io/), the identity provider. All OIDC-integrated services (Jellyfin, Jellyseerr, Grafana, Nextcloud, Immich, Vaultwarden, Kavita) use Authentik for login.
 
 ### Adding a new user
 
@@ -521,7 +521,7 @@ flowchart TD
 **Tiers:**
 1. **Infrastructure** -- K3s, MetalLB, Traefik, cert-manager
 2. **Storage** -- NFS mounts, PVC setup, namespace cleanup
-3. **Core** -- Authentik, Prometheus/Grafana/Alertmanager, Loki, Vaultwarden, Homarr
+3. **Core** -- Authentik, Prometheus/Grafana/Alertmanager, Loki, Vaultwarden, Homer
 4. **Media** -- SSO providers, arr-stack, Jellyfin, Jellyseerr, Bazarr, Lidarr, Bookshelf, Kavita, Nextcloud, FlareSolverr, Recyclarr
 5. **Extras** -- OIDC/LDAP config, arr config, Immich, Syncthing, Kiwix, NAS integration, credential sync
 
