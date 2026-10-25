@@ -42,15 +42,6 @@ let
       3030
       3040
     ];
-    books = [
-      7000
-      7010
-      7020
-      7030
-      7040
-      7050
-      7060
-    ];
   };
 
   apps = [
@@ -77,14 +68,6 @@ let
       implementation = "Lidarr";
       port = 8686;
       categories = syncCategories.music;
-      tag = "english";
-    }
-    {
-      name = "Bookshelf";
-      app = "bookshelf";
-      implementation = "Readarr";
-      port = 8787;
-      categories = syncCategories.books;
       tag = "english";
     }
     {
@@ -154,7 +137,6 @@ in
         RADARR_ES_API=$(get_secret_value ${ns} radarr-es-credentials API_KEY)
         PROWLARR_API=$(get_secret_value ${ns} prowlarr-credentials API_KEY)
         LIDARR_API=$(get_secret_value ${ns} lidarr-credentials API_KEY)
-        BOOKSHELF_API=$(get_secret_value ${ns} bookshelf-credentials API_KEY)
         QBIT_PASS=$(get_secret_value ${ns} qbittorrent-credentials PASSWORD)
         BAZARR_API=$(get_secret_value ${ns} bazarr-credentials API_KEY)
         # Fallback: read Bazarr API key from auth section of config
