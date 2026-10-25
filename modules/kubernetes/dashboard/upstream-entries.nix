@@ -60,6 +60,17 @@ in
         name = "docker-registry-ui-docker-registry-ui-user-interface";
         selector = "app.kubernetes.io/name=docker-registry-ui";
       };
+      widget = {
+        type = "customapi";
+        url = "http://docker-registry.container-registry.svc.cluster.local:5000/v2/_catalog";
+        options.mappings = [
+          {
+            field = "repositories";
+            label = "Imágenes";
+            format = "size";
+          }
+        ];
+      };
       sort = 45;
     };
   }

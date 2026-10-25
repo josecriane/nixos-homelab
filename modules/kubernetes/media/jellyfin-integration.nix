@@ -122,6 +122,8 @@ in
 
             if [ -n "$JELLYFIN_API" ]; then
               echo "  Jellyfin API key: OK (ArrStack)"
+              store_credentials ${ns} jellyfin-credentials \
+                "ADMIN_USER=$ADMIN_USER" "ADMIN_PASSWORD=$ADMIN_PASSWORD" "API_KEY=$JELLYFIN_API"
               JELLYFIN_SERVER_ID=$($KUBECTL exec -n ${ns} deploy/jellyfin -- \
                 curl -s "http://localhost:8096/System/Info/Public" 2>/dev/null | \
                 $JQ -r '.Id // empty' 2>/dev/null || echo "")

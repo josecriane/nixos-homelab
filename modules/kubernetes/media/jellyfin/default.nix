@@ -95,6 +95,16 @@ lib.recursiveUpdate release {
       namespace = "media";
       name = "jellyfin";
     };
+    widget = {
+      type = "jellyfin";
+      url = "http://jellyfin.media.svc.cluster.local:8096";
+      secrets.key = {
+        namespace = "media";
+        secret = "jellyfin-credentials";
+        key = "API_KEY";
+      };
+      options.enableBlocks = true;
+    };
     sort = 10;
   };
   systemd.services.jellyfin-setup = {

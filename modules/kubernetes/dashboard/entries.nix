@@ -3,7 +3,7 @@
 # The options are always available, whether or not the dashboard is enabled,
 # so a module can register its entry without caring who renders it. Homepage
 # reads `dashboard` and renders nothing when a group has no active items.
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 let
   inherit (lib) mkOption types;
@@ -140,13 +140,7 @@ in
                         default = { };
                       };
                       options = mkOption {
-                        type = types.attrsOf (
-                          types.oneOf [
-                            types.str
-                            types.int
-                            types.bool
-                          ]
-                        );
+                        type = types.attrsOf (pkgs.formats.json { }).type;
                         default = { };
                       };
                     };
