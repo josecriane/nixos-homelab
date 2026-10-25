@@ -77,6 +77,16 @@ in
                 description = "Where the card links to.";
                 type = types.str;
               };
+              monitor = mkOption {
+                description = ''
+                  URL the dashboard probes for entries that run outside the
+                  cluster. The card shows the response time, and the entry
+                  moves to the collapsed group of stopped services while the
+                  probe fails.
+                '';
+                type = types.nullOr types.str;
+                default = null;
+              };
               workload = mkOption {
                 description = ''
                   Deployment or StatefulSet behind the entry. The dashboard

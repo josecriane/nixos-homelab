@@ -131,6 +131,7 @@ let
               icon = "mdi-server";
               subtitle = nasCfg.description or "NAS";
               url = "https://${k8s.hostname (nasCfg.hostname or nasName)}";
+              monitor = "http://${nasCfg.ip}:${toString (nasCfg.cockpitPort or 9090)}";
               sort = base;
             };
           }
@@ -142,6 +143,7 @@ let
               icon = "mdi-folder";
               subtitle = "File Browser";
               url = "https://${k8s.hostname filesHost}";
+              monitor = "http://${nasCfg.ip}:${toString (nasCfg.fileBrowserPort or 8080)}";
               sort = base + 1;
             };
           }

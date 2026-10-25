@@ -60,6 +60,7 @@
 | Service | Description | URL Pattern |
 |---------|-------------|-------------|
 | Homepage | Application dashboard. Cards show pod state and resources, widgets show service data, and stopped services sit in a collapsed group. | `home.<subdomain>.<domain>` |
+| Traefik API | Read-only Traefik API for the dashboard widget, behind basic auth (secret `traefik-api-credentials`). | `traefik-api.<subdomain>.<domain>` |
 
 ## Backup
 

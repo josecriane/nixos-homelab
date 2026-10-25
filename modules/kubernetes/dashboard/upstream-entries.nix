@@ -21,6 +21,11 @@ let
     secret = "grafana-admin-credentials";
     inherit key;
   };
+  traefikApiSecret = key: {
+    namespace = "traefik-system";
+    secret = "traefik-api-credentials";
+    inherit key;
+  };
 in
 {
   dashboard.items = {
@@ -34,6 +39,14 @@ in
         namespace = "traefik-system";
         name = "traefik";
       };
+      widget = {
+        type = "traefik";
+        url = "https://${k8s.hostname "traefik-api"}";
+        secrets = {
+          username = traefikApiSecret "USER";
+          password = traefikApiSecret "PASSWORD";
+        };
+      };
       sort = 10;
     };
     registry-ui = {
@@ -42,6 +55,11 @@ in
       icon = "mdi-package-variant";
       subtitle = "Container Images";
       url = "https://${k8s.hostname "registry-ui"}";
+      workload = {
+        namespace = "container-registry";
+        name = "docker-registry-ui-docker-registry-ui-user-interface";
+        selector = "app.kubernetes.io/name=docker-registry-ui";
+      };
       sort = 45;
     };
   }

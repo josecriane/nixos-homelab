@@ -52,6 +52,7 @@ let
 
   mkItem = key: item: {
     title = item.title;
+    monitor = item.monitor;
     workload =
       if item.workload == null then null else "${item.workload.namespace}/${item.workload.name}";
     props = {

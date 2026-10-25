@@ -101,7 +101,7 @@ lib.recursiveUpdate release {
 
         wait_for_deployment "${ns}" "kavita" 180
 
-        $KUBECTL exec -n ${ns} deploy/kavita -- mkdir -p /data/media/manga /data/media/comics 2>/dev/null || true
+        $KUBECTL exec -n ${ns} deploy/kavita -- mkdir -p /data/media/manga/mangas /data/media/comics 2>/dev/null || true
 
         ADMIN_PASS=$(get_secret_value "${ns}" "kavita-credentials" "ADMIN_PASSWORD")
         if [ -z "$ADMIN_PASS" ]; then
@@ -165,26 +165,23 @@ lib.recursiveUpdate release {
           API_KEY=$(echo "''${LOGIN_RESPONSE}''${REGISTER_RESPONSE}" | $JQ -r '.apiKey // empty' 2>/dev/null || echo "" | head -1)
           AUTH="Authorization: Bearer $TOKEN"
 
-          EXISTING_LIBS=$($CURL -s "$KAVITA_API/Library" -H "$AUTH" 2>/dev/null || echo "[]")
-          EXISTING_COUNT=$(echo "$EXISTING_LIBS" | $JQ 'length' 2>/dev/null || echo "0")
+          EXISTING_LIBS=$($CURL -s "$KAVITA_API/Library/libraries" -H "$AUTH" 2>/dev/null || echo "[]")
 
-          if [ "$EXISTING_COUNT" = "0" ] || [ "$EXISTING_COUNT" = "" ]; then
-            echo "Creating libraries..."
-            $CURL -s -X POST "$KAVITA_API/Library" \
+          ensure_library() {
+            local name="$1" type="$2" folder="$3" groups="$4"
+            if echo "$EXISTING_LIBS" | $JQ -e --arg n "$name" '.[] | select(.name == $n)' >/dev/null 2>&1; then
+              echo "  Library $name exists"
+              return
+            fi
+            $CURL -s -X POST "$KAVITA_API/Library/create" \
               -H "$AUTH" -H "Content-Type: application/json" \
-              -d '{"name":"Manga","type":2,"folders":["/data/media/manga"]}' > /dev/null 2>&1
-            echo "  Library: Manga"
-            $CURL -s -X POST "$KAVITA_API/Library" \
-              -H "$AUTH" -H "Content-Type: application/json" \
-              -d '{"name":"Comics","type":1,"folders":["/data/media/comics"]}' > /dev/null 2>&1
-            echo "  Library: Comics"
-            $CURL -s -X POST "$KAVITA_API/Library" \
-              -H "$AUTH" -H "Content-Type: application/json" \
-              -d '{"name":"Books","type":0,"folders":["/data/media/books"]}' > /dev/null 2>&1
-            echo "  Library: Books"
-          else
-            echo "Libraries already exist ($EXISTING_COUNT)"
-          fi
+              -d "{\"name\":\"$name\",\"type\":$type,\"folders\":[\"$folder\"],\"fileGroupTypes\":$groups,\"folderWatching\":true,\"includeInDashboard\":true,\"includeInRecommended\":true,\"includeInSearch\":true,\"manageCollections\":true,\"manageReadingLists\":true,\"allowScrobbling\":false,\"allowMetadataMatching\":true,\"enableMetadata\":true,\"excludePatterns\":[]}" > /dev/null 2>&1
+            echo "  Library $name created"
+          }
+
+          ensure_library Manga 0 /data/media/manga/mangas "[1]"
+          ensure_library Comics 1 /data/media/comics "[1]"
+          ensure_library Books 2 /data/media/books "[2,3]"
 
           store_credentials "${ns}" "kavita-credentials" \
             "ADMIN_USER=admin" "ADMIN_PASSWORD=$ADMIN_PASS" "API_KEY=$API_KEY"

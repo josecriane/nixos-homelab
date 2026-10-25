@@ -21,6 +21,7 @@ in
   ]
   ++ lib.optionals (isBootstrap && (enabled "dashboard")) [
     ./homepage
+    ./homepage/traefik-api.nix
   ]
   ++ lib.optionals (enabled "switchboard") [
     ./switchboard.nix
