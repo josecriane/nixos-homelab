@@ -59,7 +59,7 @@
 
 | Service | Description | URL Pattern |
 |---------|-------------|-------------|
-| Homer | Application dashboard. Hides services scaled to zero; a header link shows them. | `home.<subdomain>.<domain>` |
+| Homepage | Application dashboard. Cards show pod state and resources, widgets show service data, and stopped services sit in a collapsed group. | `home.<subdomain>.<domain>` |
 
 ## Backup
 
@@ -80,7 +80,7 @@ services = {
   media = false;       # Full media stack
   immich = false;      # Photo management
   syncthing = false;   # File sync
-  dashboard = true;    # Homer
+  dashboard = true;    # Homepage
   kiwix = false;       # Offline knowledge (Wikipedia, iFixit)
 };
 ```

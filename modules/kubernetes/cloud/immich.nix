@@ -22,12 +22,13 @@ in
   dashboard.items.immich = {
     group = "cloud";
     title = "Immich";
-    icon = "fas fa-images";
+    icon = "sh-immich";
     subtitle = "Photo Backup";
     url = "https://${k8s.hostname "photos"}";
     workload = {
       namespace = "immich";
       name = "immich-server";
+      selector = "app=immich-server";
     };
     sort = 30;
   };

@@ -16,12 +16,13 @@ in
   dashboard.items.syncthing = {
     group = "cloud";
     title = "Syncthing";
-    icon = "fas fa-sync";
+    icon = "sh-syncthing";
     subtitle = "File Sync";
     url = "https://${k8s.hostname "sync"}";
     workload = {
       namespace = "syncthing";
       name = "syncthing";
+      selector = "app=syncthing";
     };
     sort = 40;
   };

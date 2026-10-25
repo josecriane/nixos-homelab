@@ -11,7 +11,7 @@ let
   isBootstrap = nodeConfig.bootstrap or false;
 in
 {
-  # homer: bootstrap-only, gated by `services.dashboard`.
+  # homepage: bootstrap-only, gated by `services.dashboard`.
   # switchboard.nix is homelab glue that sets `k8s.apps.switchboard`
   # (option defined by the upstream switchboard module). It must only
   # load when the upstream module is also active.
@@ -20,8 +20,7 @@ in
     ./upstream-entries.nix
   ]
   ++ lib.optionals (isBootstrap && (enabled "dashboard")) [
-    ./homer
-    ./homer/proxy.nix
+    ./homepage
   ]
   ++ lib.optionals (enabled "switchboard") [
     ./switchboard.nix

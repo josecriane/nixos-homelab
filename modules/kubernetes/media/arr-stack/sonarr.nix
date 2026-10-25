@@ -18,15 +18,11 @@ helpers.mkArrRelease {
   apiKeySecret = "sonarr-api-key";
   memReq = "256Mi";
   memLim = "2Gi";
-  cardType = "Sonarr";
-  cardPaths = [
-    "/api/v3/health"
-    "/api/v3/queue"
-    "/api/v3/wanted/missing"
-  ];
+  widgetType = "sonarr";
+  widgetOptions.enableQueue = true;
   dashboard = {
     title = "Sonarr";
-    icon = "fas fa-tv";
+    icon = "sh-sonarr";
     subtitle = "TV Shows";
     sort = 10;
   };

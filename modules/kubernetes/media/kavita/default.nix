@@ -33,12 +33,28 @@ lib.recursiveUpdate release {
   dashboard.items.kavita = {
     group = "media";
     title = "Kavita";
-    icon = "fas fa-book-reader";
+    icon = "sh-kavita";
     subtitle = "Manga/Comics";
     url = "https://${k8s.hostname "kavita"}";
     workload = {
       namespace = "media";
       name = "kavita";
+    };
+    widget = {
+      type = "kavita";
+      url = "http://kavita.media.svc.cluster.local:5000";
+      secrets = {
+        username = {
+          namespace = "media";
+          secret = "kavita-credentials";
+          key = "ADMIN_USER";
+        };
+        password = {
+          namespace = "media";
+          secret = "kavita-credentials";
+          key = "ADMIN_PASSWORD";
+        };
+      };
     };
     sort = 30;
   };

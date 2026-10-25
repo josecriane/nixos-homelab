@@ -128,7 +128,7 @@ let
             value = {
               group = "storage";
               title = "${nasName} Cockpit";
-              icon = "fas fa-server";
+              icon = "mdi-server";
               subtitle = nasCfg.description or "NAS";
               url = "https://${k8s.hostname (nasCfg.hostname or nasName)}";
               sort = base;
@@ -139,7 +139,7 @@ let
             value = {
               group = "storage";
               title = "${nasName} Files";
-              icon = "fas fa-folder";
+              icon = "mdi-folder";
               subtitle = "File Browser";
               url = "https://${k8s.hostname filesHost}";
               sort = base + 1;

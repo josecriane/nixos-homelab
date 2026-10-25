@@ -69,7 +69,7 @@ All media services are enabled together with `media = true` in config.
 
 | Service | URL | What it does |
 |---------|-----|-------------|
-| [Homer](https://github.com/bastienwirtz/homer) | `home.*` | Application dashboard. Each card shows the live state of its workload through Switchboard, the arr cards and Prometheus show activity through a GET-only proxy on the dashboard host, and services scaled to zero are hidden until the "Mostrar apagados" link in the header. |
+| [Homepage](https://gethomepage.dev/) | `home.*` | Application dashboard. Each card shows the state, CPU and memory of its pods, service widgets show queues, requests, alerts and counts, and services scaled to zero sit in a collapsed "Apagados" group. |
 | [Restic](https://restic.net/) | timers | Encrypted backups. Daily critical backups and weekly full backups to NAS. |
 
 ### Infrastructure (no UI)
@@ -227,7 +227,7 @@ services = {
   media = false;       # Full media stack (Jellyfin + arr-stack)
   immich = false;      # Photo management
   syncthing = false;   # File sync
-  dashboard = true;    # Homer dashboard
+  dashboard = true;    # Homepage dashboard
   kiwix = false;       # Offline Wikipedia + iFixit
   paperless = false;   # Document manager with OCR
   stirling-pdf = false; # PDF toolbox
@@ -417,7 +417,7 @@ flowchart TD
         monitoring["Monitoring<br/>Prometheus, Grafana, Alertmanager"]
         loki["Loki + Promtail"]
         vaultwarden["Vaultwarden"]
-        homer["Homer"]
+        homepage["Homepage"]
     end
     T2 -.->|target| T3
     monitoring --> loki
@@ -521,9 +521,9 @@ flowchart TD
 **Tiers:**
 1. **Infrastructure** -- K3s, MetalLB, Traefik, cert-manager
 2. **Storage** -- NFS mounts, PVC setup, namespace cleanup
-3. **Core** -- Authentik, Prometheus/Grafana/Alertmanager, Loki, Vaultwarden, Homer
+3. **Core** -- Authentik, Prometheus/Grafana/Alertmanager, Loki, Vaultwarden
 4. **Media** -- SSO providers, arr-stack, Jellyfin, Jellyseerr, Bazarr, Lidarr, Bookshelf, Kavita, Nextcloud, FlareSolverr, Recyclarr
-5. **Extras** -- OIDC/LDAP config, arr config, Immich, Syncthing, Kiwix, NAS integration, credential sync
+5. **Extras** -- OIDC/LDAP config, arr config, Immich, Syncthing, Kiwix, NAS integration, credential sync, Homepage
 
 Backup runs on timers after all tiers: daily critical, weekly full, weekly cleanup.
 

@@ -68,7 +68,7 @@ lib.recursiveUpdate release {
   dashboard.items.stirling-pdf = {
     group = "documents";
     title = "Stirling PDF";
-    icon = "fas fa-file-pdf";
+    icon = "sh-stirling-pdf";
     subtitle = "PDF Tools";
     url = "https://${k8s.hostname "pdf"}";
     workload = {

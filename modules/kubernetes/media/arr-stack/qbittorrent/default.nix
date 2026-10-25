@@ -36,12 +36,28 @@ lib.recursiveUpdate release {
   dashboard.items.qbittorrent = {
     group = "downloads";
     title = "qBittorrent";
-    icon = "fas fa-download";
+    icon = "sh-qbittorrent";
     subtitle = "Downloads";
     url = "https://${k8s.hostname "qbit"}";
     workload = {
       namespace = "media";
       name = "qbittorrent";
+    };
+    widget = {
+      type = "qbittorrent";
+      url = "http://qbittorrent.media.svc.cluster.local:8080";
+      secrets = {
+        username = {
+          namespace = "media";
+          secret = "qbittorrent-credentials";
+          key = "USER";
+        };
+        password = {
+          namespace = "media";
+          secret = "qbittorrent-credentials";
+          key = "PASSWORD";
+        };
+      };
     };
     sort = 80;
   };

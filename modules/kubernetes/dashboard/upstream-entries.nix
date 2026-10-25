@@ -16,22 +16,30 @@ let
   longhorn = serverConfig.storage.longhorn;
   longhornEnabled = (longhorn.enable or false) && ((longhorn.ingress or null) != null);
 
-  ping = namespace: name: { inherit namespace name; };
+  monitoringSecret = key: {
+    namespace = "monitoring";
+    secret = "grafana-admin-credentials";
+    inherit key;
+  };
 in
 {
   dashboard.items = {
     traefik = {
       group = "infrastructure";
       title = "Traefik";
-      icon = "fas fa-route";
+      icon = "sh-traefik";
       subtitle = "Ingress Controller";
       url = "https://${k8s.hostname "traefik"}";
+      workload = {
+        namespace = "traefik-system";
+        name = "traefik";
+      };
       sort = 10;
     };
     registry-ui = {
       group = "infrastructure";
       title = "Registry";
-      icon = "fas fa-box";
+      icon = "mdi-package-variant";
       subtitle = "Container Images";
       url = "https://${k8s.hostname "registry-ui"}";
       sort = 45;
@@ -41,9 +49,14 @@ in
     longhorn = {
       group = "infrastructure";
       title = "Longhorn";
-      icon = "fas fa-hdd";
+      icon = "mdi-harddisk";
       subtitle = "Distributed Storage";
       url = "https://${k8s.hostname longhorn.ingress.host}";
+      workload = {
+        namespace = "longhorn-system";
+        name = "longhorn-ui";
+        selector = "app=longhorn-ui";
+      };
       sort = 40;
     };
   }
@@ -51,35 +64,53 @@ in
     grafana = {
       group = "monitoring";
       title = "Grafana";
-      icon = "fas fa-chart-area";
+      icon = "sh-grafana";
       subtitle = "Dashboards";
       url = "https://${k8s.hostname "grafana"}";
-      ping = ping "monitoring" "kube-prometheus-stack-grafana";
+      workload = {
+        namespace = "monitoring";
+        name = "kube-prometheus-stack-grafana";
+        selector = "app.kubernetes.io/name=grafana";
+      };
+      widget = {
+        type = "grafana";
+        url = "http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80";
+        secrets = {
+          username = monitoringSecret "admin-user";
+          password = monitoringSecret "admin-password";
+        };
+        options.version = 2;
+      };
       sort = 10;
     };
     prometheus = {
       group = "monitoring";
       title = "Prometheus";
-      icon = "fas fa-database";
+      icon = "sh-prometheus";
       subtitle = "Metrics";
       url = "https://${k8s.hostname "prometheus"}";
-      card = {
-        type = "Prometheus";
-        service = {
-          namespace = "monitoring";
-          name = "kube-prometheus-stack-prometheus";
-          port = 9090;
-        };
-        paths = [ "/api/v1/alerts" ];
+      workload = {
+        namespace = "monitoring";
+        name = "prometheus-kube-prometheus-stack-prometheus";
+        selector = "app.kubernetes.io/name=prometheus";
+      };
+      widget = {
+        type = "prometheus";
+        url = "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090";
       };
       sort = 20;
     };
     alertmanager = {
       group = "monitoring";
       title = "Alertmanager";
-      icon = "fas fa-bell";
+      icon = "mdi-bell-ring";
       subtitle = "Alerts";
       url = "https://${k8s.hostname "alertmanager"}";
+      workload = {
+        namespace = "monitoring";
+        name = "alertmanager-kube-prometheus-stack-alertmanager";
+        selector = "app.kubernetes.io/name=alertmanager";
+      };
       sort = 30;
     };
   };

@@ -130,12 +130,13 @@ in
     dashboard.items.switchboard = {
       group = "infrastructure";
       title = "Service Manager";
-      icon = "fas fa-power-off";
+      icon = "mdi-power";
       subtitle = "Start/Stop Services";
       url = "https://${k8s.hostname "services"}";
       workload = {
         namespace = "switchboard";
         name = "switchboard";
+        selector = "app=switchboard";
       };
       sort = 30;
     };

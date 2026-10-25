@@ -35,29 +35,20 @@ lib.recursiveUpdate release {
   dashboard.items.lidarr = {
     group = "downloads";
     title = "Lidarr";
-    icon = "fas fa-music";
+    icon = "sh-lidarr";
     subtitle = "Music";
     url = "https://${k8s.hostname "lidarr"}";
     workload = {
       namespace = "media";
       name = "lidarr";
     };
-    card = {
-      type = "Lidarr";
-      service = {
+    widget = {
+      type = "lidarr";
+      url = "http://lidarr.media.svc.cluster.local:8686";
+      secrets.key = {
         namespace = "media";
-        name = "lidarr";
-        port = 8686;
-      };
-      paths = [
-        "/api/v1/health"
-        "/api/v1/queue/status"
-        "/api/v1/wanted/missing"
-      ];
-      apiKey = {
         secret = "lidarr-api-key";
         key = "api-key";
-        header = "X-Api-Key";
       };
     };
     sort = 50;

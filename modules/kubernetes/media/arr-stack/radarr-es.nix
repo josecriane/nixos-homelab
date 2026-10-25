@@ -18,17 +18,12 @@ helpers.mkArrRelease {
   apiKeySecret = "radarr-es-api-key";
   memReq = "256Mi";
   memLim = "2Gi";
-  cardType = "Radarr";
-  cardPaths = [
-    "/api/v3/health"
-    "/api/v3/queue"
-    "/api/v3/wanted/missing"
-  ];
+  widgetType = "radarr";
+  widgetOptions.enableQueue = true;
   dashboard = {
     title = "Radarr ES";
-    icon = "fas fa-video";
+    icon = "sh-radarr";
     subtitle = "Movies (ES)";
-    tag = "ES";
     sort = 40;
   };
 }

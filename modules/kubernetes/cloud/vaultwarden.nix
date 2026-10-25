@@ -88,9 +88,13 @@ lib.recursiveUpdate release {
   dashboard.items.vaultwarden = {
     group = "cloud";
     title = "Vaultwarden";
-    icon = "fas fa-key";
+    icon = "sh-vaultwarden";
     subtitle = "Password Manager";
     url = "https://${k8s.hostname "vault"}";
+    workload = {
+      namespace = "vaultwarden";
+      name = "vaultwarden";
+    };
     sort = 10;
   };
   systemd.services.vaultwarden-sso-setup = {

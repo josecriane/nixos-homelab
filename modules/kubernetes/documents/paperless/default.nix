@@ -116,12 +116,28 @@ lib.recursiveUpdate release {
   dashboard.items.paperless = {
     group = "documents";
     title = "Paperless";
-    icon = "fas fa-file-alt";
+    icon = "sh-paperless-ngx";
     subtitle = "Document Archive";
     url = "https://${k8s.hostname "paperless"}";
     workload = {
       namespace = "extra";
       name = "paperless";
+    };
+    widget = {
+      type = "paperlessngx";
+      url = "http://paperless.extra.svc.cluster.local:8000";
+      secrets = {
+        username = {
+          namespace = "extra";
+          secret = "paperless-oidc";
+          key = "PAPERLESS_ADMIN_USER";
+        };
+        password = {
+          namespace = "extra";
+          secret = "paperless-oidc";
+          key = "PAPERLESS_ADMIN_PASSWORD";
+        };
+      };
     };
     sort = 10;
   };

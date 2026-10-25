@@ -91,12 +91,23 @@ lib.recursiveUpdate release {
   dashboard.items.authentik = {
     group = "infrastructure";
     title = "Authentik";
-    icon = "fas fa-shield-alt";
+    icon = "sh-authentik";
     subtitle = "SSO/Identity";
     url = "https://${k8s.hostname "auth"}";
     workload = {
       namespace = "authentik";
       name = "authentik-server";
+      selector = "app.kubernetes.io/name=authentik,app.kubernetes.io/component=server";
+    };
+    widget = {
+      type = "authentik";
+      url = "http://authentik-server.authentik.svc.cluster.local:80";
+      secrets.key = {
+        namespace = "authentik";
+        secret = "authentik-api-token";
+        key = "TOKEN";
+      };
+      options.version = 2;
     };
     sort = 20;
   };

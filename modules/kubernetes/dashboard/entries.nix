@@ -1,12 +1,17 @@
 # Dashboard entries, declared by the module that owns each service.
 #
-# The options are always available, whether or not homer is enabled, so a
-# module can register its entry without caring who renders it. homer reads
-# `dashboard` and renders nothing when a group has no active items.
+# The options are always available, whether or not the dashboard is enabled,
+# so a module can register its entry without caring who renders it. Homepage
+# reads `dashboard` and renders nothing when a group has no active items.
 { lib, ... }:
 
 let
   inherit (lib) mkOption types;
+
+  iconDescription = ''
+    Homepage icon: `sh-<name>` from selfh.st, `mdi-<name>` from Material
+    Design Icons, `si-<name>` from Simple Icons, or a URL.
+  '';
 in
 {
   options.dashboard = {
@@ -21,7 +26,7 @@ in
               type = types.str;
             };
             icon = mkOption {
-              description = "Font Awesome class for the heading.";
+              description = iconDescription;
               type = types.str;
             };
             sort = mkOption {
@@ -61,7 +66,7 @@ in
                 default = name;
               };
               icon = mkOption {
-                description = "Font Awesome class for the card.";
+                description = iconDescription;
                 type = types.str;
               };
               subtitle = mkOption {
@@ -72,77 +77,66 @@ in
                 description = "Where the card links to.";
                 type = types.str;
               };
-              tag = mkOption {
-                description = "Short label shown next to the name.";
-                type = types.nullOr types.str;
-                default = null;
-              };
-              ping = mkOption {
-                description = ''
-                  Workload whose readiness turns into a status dot, as
-                  `{ namespace, name }`. The URL of the check is built from the
-                  switchboard host, so an entry does not have to know it.
-                '';
-                type = types.nullOr (
-                  types.submodule {
-                    options = {
-                      namespace = mkOption { type = types.str; };
-                      name = mkOption { type = types.str; };
-                    };
-                  }
-                );
-                default = null;
-              };
               workload = mkOption {
                 description = ''
-                  Deployment or StatefulSet behind the entry, as `{ namespace, name }`.
-                  The dashboard hides the entry while the workload has zero
-                  replicas, and uses it for the status dot when `ping` is unset.
+                  Deployment or StatefulSet behind the entry. The dashboard
+                  moves the entry to the collapsed group of stopped services
+                  while the workload has zero replicas, and shows the state,
+                  CPU and memory of its pods. Pods are matched by the label
+                  `app.kubernetes.io/name=<name>` unless `selector` says
+                  otherwise.
                 '';
                 type = types.nullOr (
                   types.submodule {
                     options = {
                       namespace = mkOption { type = types.str; };
                       name = mkOption { type = types.str; };
+                      selector = mkOption {
+                        description = "Label selector of the pods, when the default does not match.";
+                        type = types.nullOr types.str;
+                        default = null;
+                      };
                     };
                   }
                 );
                 default = null;
               };
-              card = mkOption {
+              widget = mkOption {
                 description = ''
-                  Homer smart card fed through a GET-only proxy on the dashboard
-                  host. `paths` are the API paths the card reads, `apiKey` names
-                  the secret whose value Traefik injects as `header`.
+                  Homepage service widget. `secrets` maps a widget field such
+                  as `key`, `username` or `password` to the Kubernetes secret
+                  that holds its value; the dashboard copies the value into its
+                  own namespace and the widget reads it through an environment
+                  variable. `options` holds the remaining fields of the widget.
                 '';
                 type = types.nullOr (
                   types.submodule {
                     options = {
                       type = mkOption { type = types.str; };
-                      service = mkOption {
-                        type = types.submodule {
-                          options = {
-                            namespace = mkOption { type = types.str; };
-                            name = mkOption { type = types.str; };
-                            port = mkOption { type = types.port; };
-                          };
-                        };
+                      url = mkOption {
+                        description = "URL the dashboard uses to reach the service, usually the cluster-internal one.";
+                        type = types.str;
                       };
-                      paths = mkOption { type = types.listOf types.str; };
-                      apiKey = mkOption {
-                        type = types.nullOr (
+                      secrets = mkOption {
+                        type = types.attrsOf (
                           types.submodule {
                             options = {
+                              namespace = mkOption { type = types.str; };
                               secret = mkOption { type = types.str; };
                               key = mkOption { type = types.str; };
-                              header = mkOption { type = types.str; };
                             };
                           }
                         );
-                        default = null;
+                        default = { };
                       };
-                      extra = mkOption {
-                        type = types.attrsOf types.str;
+                      options = mkOption {
+                        type = types.attrsOf (
+                          types.oneOf [
+                            types.str
+                            types.int
+                            types.bool
+                          ]
+                        );
                         default = { };
                       };
                     };
@@ -165,42 +159,47 @@ in
   config.dashboard.groups = {
     cloud = {
       title = "Cloud";
-      icon = "fas fa-cloud";
+      icon = "mdi-cloud";
       sort = 10;
     };
     media = {
       title = "Media";
-      icon = "fas fa-play-circle";
+      icon = "mdi-play-circle";
       sort = 20;
     };
     downloads = {
       title = "Downloads & Management";
-      icon = "fas fa-tasks";
+      icon = "mdi-tray-arrow-down";
       sort = 30;
     };
     documents = {
       title = "Documents";
-      icon = "fas fa-folder-open";
-      sort = 35;
+      icon = "mdi-folder-open";
+      sort = 25;
+    };
+    requests = {
+      title = "Media Requests";
+      icon = "mdi-inbox-arrow-down";
+      sort = 26;
     };
     knowledge = {
       title = "Knowledge";
-      icon = "fas fa-brain";
+      icon = "mdi-brain";
       sort = 40;
     };
     monitoring = {
       title = "Monitoring";
-      icon = "fas fa-chart-line";
+      icon = "mdi-chart-line";
       sort = 50;
     };
     infrastructure = {
       title = "Infrastructure";
-      icon = "fas fa-server";
+      icon = "mdi-server";
       sort = 60;
     };
     storage = {
       title = "Storage";
-      icon = "fas fa-hdd";
+      icon = "mdi-harddisk";
       sort = 70;
     };
   };

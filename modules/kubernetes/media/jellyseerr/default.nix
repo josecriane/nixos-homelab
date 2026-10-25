@@ -34,14 +34,23 @@ let
 in
 lib.recursiveUpdate release {
   dashboard.items.jellyseerr = {
-    group = "media";
+    group = "requests";
     title = "Jellyseerr";
-    icon = "fas fa-search";
+    icon = "sh-jellyseerr";
     subtitle = "Media Requests";
     url = "https://${k8s.hostname "requests"}";
     workload = {
       namespace = "media";
       name = "jellyseerr";
+    };
+    widget = {
+      type = "seerr";
+      url = "http://jellyseerr.media.svc.cluster.local:5055";
+      secrets.key = {
+        namespace = "media";
+        secret = "jellyseerr-credentials";
+        key = "API_KEY";
+      };
     };
     sort = 20;
   };

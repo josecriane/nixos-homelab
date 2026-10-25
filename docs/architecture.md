@@ -38,7 +38,7 @@ modules/kubernetes/
   media/               - Jellyfin, arr-stack, Bazarr, Jellyseerr, etc.
   monitoring/          - Grafana, Prometheus, Loki
   knowledge/           - Kiwix (offline Wikipedia, iFixit)
-  dashboard/           - Homer, Switchboard
+  dashboard/           - Homepage, Switchboard
   backup/              - Restic backup to NAS
 ```
 

@@ -38,8 +38,8 @@ let
       memReq ? "128Mi",
       memLim ? "512Mi",
       dashboard ? null,
-      cardType ? null,
-      cardPaths ? [ ],
+      widgetType ? null,
+      widgetOptions ? { },
       extraAfter ? [ ],
     }:
     let
@@ -155,28 +155,24 @@ let
           icon = dashboard.icon;
           subtitle = dashboard.subtitle;
           url = "https://${k8s.hostname ingressHost}";
-          tag = dashboard.tag or null;
           sort = dashboard.sort or 100;
           workload = {
             namespace = "media";
             inherit name;
           };
-          card =
-            if cardType == null then
+          widget =
+            if widgetType == null then
               null
             else
               {
-                type = cardType;
-                service = {
+                type = widgetType;
+                url = "http://${name}.media.svc.cluster.local:${toString port}";
+                secrets.key = {
                   namespace = "media";
-                  inherit name port;
-                };
-                paths = cardPaths;
-                apiKey = {
                   secret = apiKeySecret;
                   key = "api-key";
-                  header = "X-Api-Key";
                 };
+                options = widgetOptions;
               };
         };
       };

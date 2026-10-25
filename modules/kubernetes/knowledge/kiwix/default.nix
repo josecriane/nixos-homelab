@@ -40,14 +40,10 @@ lib.recursiveUpdate release {
   dashboard.items.kiwix = {
     group = "knowledge";
     title = "Kiwix";
-    icon = "fab fa-wikipedia-w";
+    icon = "sh-kiwix";
     subtitle = "Offline Knowledge";
     url = "https://${k8s.hostname "wiki"}";
     workload = {
-      namespace = "kiwix";
-      name = "kiwix-serve";
-    };
-    ping = {
       namespace = "kiwix";
       name = "kiwix-serve";
     };

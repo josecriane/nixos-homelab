@@ -32,12 +32,21 @@ lib.recursiveUpdate release {
   dashboard.items.bazarr = {
     group = "downloads";
     title = "Bazarr";
-    icon = "fas fa-closed-captioning";
+    icon = "sh-bazarr";
     subtitle = "Subtitles";
     url = "https://${k8s.hostname "bazarr"}";
     workload = {
       namespace = "media";
       name = "bazarr";
+    };
+    widget = {
+      type = "bazarr";
+      url = "http://bazarr.media.svc.cluster.local:6767";
+      secrets.key = {
+        namespace = "media";
+        secret = "bazarr-credentials";
+        key = "API_KEY";
+      };
     };
     sort = 60;
   };

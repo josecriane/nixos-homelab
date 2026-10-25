@@ -17,11 +17,10 @@ helpers.mkArrRelease {
   configPvc = "prowlarr-config";
   apiKeySecret = "prowlarr-api-key";
   withSharedData = false;
-  cardType = "Prowlarr";
-  cardPaths = [ "/api/v1/health" ];
+  widgetType = "prowlarr";
   dashboard = {
     title = "Prowlarr";
-    icon = "fas fa-search-plus";
+    icon = "sh-prowlarr";
     subtitle = "Indexers";
     sort = 70;
   };

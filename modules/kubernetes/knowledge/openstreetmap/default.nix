@@ -145,14 +145,10 @@ lib.recursiveUpdate release {
   dashboard.items.openstreetmap = {
     group = "knowledge";
     title = "OpenStreetMap";
-    icon = "fas fa-map-marked-alt";
+    icon = "mdi-map";
     subtitle = "Offline Maps";
     url = "https://${k8s.hostname "maps"}";
     workload = {
-      namespace = "openstreetmap";
-      name = "openstreetmap";
-    };
-    ping = {
       namespace = "openstreetmap";
       name = "openstreetmap";
     };

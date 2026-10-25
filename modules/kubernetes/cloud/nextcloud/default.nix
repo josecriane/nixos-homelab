@@ -229,12 +229,28 @@ lib.recursiveUpdate release {
   dashboard.items.nextcloud = {
     group = "cloud";
     title = "Nextcloud";
-    icon = "fas fa-cloud";
+    icon = "sh-nextcloud";
     subtitle = "Cloud Storage";
     url = "https://${k8s.hostname "cloud"}";
     workload = {
       namespace = "nextcloud";
       name = "nextcloud";
+    };
+    widget = {
+      type = "nextcloud";
+      url = "http://nextcloud.nextcloud.svc.cluster.local:8080";
+      secrets = {
+        username = {
+          namespace = "nextcloud";
+          secret = "nextcloud-local-credentials";
+          key = "NEXTCLOUD_ADMIN_USER";
+        };
+        password = {
+          namespace = "nextcloud";
+          secret = "nextcloud-local-credentials";
+          key = "NEXTCLOUD_ADMIN_PASSWORD";
+        };
+      };
     };
     sort = 20;
   };

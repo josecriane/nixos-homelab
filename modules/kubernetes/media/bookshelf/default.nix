@@ -32,7 +32,7 @@ lib.recursiveUpdate release {
   dashboard.items.bookshelf = {
     group = "downloads";
     title = "Bookshelf";
-    icon = "fas fa-book";
+    icon = "mdi-bookshelf";
     subtitle = "Ebooks";
     url = "https://${k8s.hostname "books"}";
     workload = {

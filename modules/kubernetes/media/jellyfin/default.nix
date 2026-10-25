@@ -88,7 +88,7 @@ lib.recursiveUpdate release {
   dashboard.items.jellyfin = {
     group = "media";
     title = "Jellyfin";
-    icon = "fas fa-film";
+    icon = "sh-jellyfin";
     subtitle = "Media Server";
     url = "https://${k8s.hostname "jellyfin"}";
     workload = {
