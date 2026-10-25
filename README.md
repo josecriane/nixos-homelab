@@ -22,8 +22,6 @@ Every service runs as a Kubernetes pod, gets a TLS certificate, and is accessibl
 | [Prowlarr](https://prowlarr.com/) | `prowlarr.*` | Indexer manager. Centralizes torrent indexers and pushes them to Sonarr/Radarr/Lidarr. |
 | [qBittorrent](https://www.qbittorrent.org/) | `qbit.*` | Torrent client. Downloads everything the arr-stack sends it. |
 | [Bazarr](https://www.bazarr.media/) | `bazarr.*` | Subtitle manager. Automatically finds and downloads subtitles for movies and TV. |
-| [Bookshelf](https://github.com/linuxserver/docker-readarr) | `books.*` | Ebook manager (Readarr). Monitors authors, grabs books. |
-| [Kavita](https://www.kavitareader.com/) | `kavita.*` | Book and manga reader. Web-based reader with OPDS support. |
 | [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) | internal | Cloudflare bypass proxy. Helps Prowlarr access sites behind Cloudflare protection. |
 | [Recyclarr](https://recyclarr.dev/) | CronJob | TRaSH Guides sync. Applies recommended quality profiles and custom formats to Sonarr/Radarr. |
 
@@ -268,7 +266,7 @@ For `<service>.<subdomain>.<domain>` URLs to resolve over VPN, point your device
 
 ## User Management
 
-Users are managed through [Authentik](https://goauthentik.io/), the identity provider. All OIDC-integrated services (Jellyfin, Jellyseerr, Grafana, Nextcloud, Immich, Vaultwarden, Kavita) use Authentik for login.
+Users are managed through [Authentik](https://goauthentik.io/), the identity provider. All OIDC-integrated services (Jellyfin, Jellyseerr, Grafana, Nextcloud, Immich, Vaultwarden) use Authentik for login.
 
 ### Adding a new user
 
@@ -328,7 +326,7 @@ These groups are created automatically during setup:
 
 | Group | Purpose |
 |-------|---------|
-| `admins` | Full admin access. Admin role in Kavita. |
+| `admins` | Full admin access. |
 | `media-admins` | Media service administration. |
 | `media-users` | Standard media access. Can stream and request content. |
 | `family` | Family members. Same media access as `media-users`. |
@@ -336,7 +334,7 @@ These groups are created automatically during setup:
 
 ### What each group gets access to
 
-- **OIDC services** (Jellyfin, Grafana, Immich, etc.): any Authentik user can log in. Group membership controls roles within each service (e.g. `admins` get the Admin role in Kavita).
+- **OIDC services** (Jellyfin, Grafana, Immich, etc.): any Authentik user can log in. Group membership controls roles within each service.
 - **ForwardAuth services** (arr-stack, Traefik dashboard): Authentik intercepts the request and requires authentication. Any valid user can access them.
 - **Syncthing**: Uses LDAP (if enabled). Users authenticate with their Authentik credentials via the LDAP outpost.
 
@@ -430,8 +428,6 @@ flowchart TD
         jellyseerr["Jellyseerr"]
         bazarr["Bazarr"]
         lidarr["Lidarr"]
-        bookshelf["Bookshelf"]
-        kavita["Kavita"]
         flaresolverr["FlareSolverr"]
         nextcloud["Nextcloud<br/>+ PostgreSQL, Redis"]
         recyclarr["Recyclarr"]
@@ -442,10 +438,8 @@ flowchart TD
     arrstack --> bazarr
     arrstack --> lidarr
     arrsecrets --> lidarr
-    arrsecrets --> bookshelf
     arrsecrets --> recyclarr
     jellyfin --> jellyseerr
-    sso --> kavita
 
     subgraph T5["Tier 5: Extras"]
         bootusers["bootstrap-users"]
@@ -522,7 +516,7 @@ flowchart TD
 1. **Infrastructure** -- K3s, MetalLB, Traefik, cert-manager
 2. **Storage** -- NFS mounts, PVC setup, namespace cleanup
 3. **Core** -- Authentik, Prometheus/Grafana/Alertmanager, Loki, Vaultwarden
-4. **Media** -- SSO providers, arr-stack, Jellyfin, Jellyseerr, Bazarr, Lidarr, Bookshelf, Kavita, Nextcloud, FlareSolverr, Recyclarr
+4. **Media** -- SSO providers, arr-stack, Jellyfin, Jellyseerr, Bazarr, Lidarr, Nextcloud, FlareSolverr, Recyclarr
 5. **Extras** -- OIDC/LDAP config, arr config, Immich, Syncthing, Kiwix, NAS integration, credential sync, Homepage
 
 Backup runs on timers after all tiers: daily critical, weekly full, weekly cleanup.
@@ -547,7 +541,7 @@ Install these to access your services from your phone. Tailscale is required for
 | Monitoring | [Grafana](https://apps.apple.com/app/grafana-mobile/id1563348498) | [Grafana](https://play.google.com/store/apps/details?id=com.grafana.app) |
 | Offline wiki | [Kiwix](https://apps.apple.com/app/kiwix/id997079563) | [Kiwix](https://play.google.com/store/apps/details?id=org.kiwix.kiwixmobile) |
 
-Configure Bitwarden with your server URL (`https://vault.<subdomain>.<domain>`). For OPDS readers (Kavita), use `https://kavita.<subdomain>.<domain>/api/opds/<your-api-key>`. Jellyseerr works well as a PWA (open in browser, then "Add to Home Screen").
+Configure Bitwarden with your server URL (`https://vault.<subdomain>.<domain>`). Jellyseerr works well as a PWA (open in browser, then "Add to Home Screen").
 
 ## Post-Install
 

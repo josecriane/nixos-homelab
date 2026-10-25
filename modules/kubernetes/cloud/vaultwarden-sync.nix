@@ -196,16 +196,12 @@ in
           "USER" "PASSWORD" "URL" "API_KEY"
         sync_service "qBittorrent" "media" "qbittorrent-credentials" \
           "USER" "PASSWORD" "URL"
-        sync_service "Bookshelf" "media" "bookshelf-credentials" \
-          "USER" "PASSWORD" "URL" "API_KEY"
 
         # Media
         sync_service "Jellyfin" "media" "jellyfin-credentials" \
           "ADMIN_USER" "ADMIN_PASSWORD" ""
         sync_service "Jellyseerr" "media" "jellyseerr-credentials" \
           "" "" "URL" "API_KEY"
-        sync_service "Kavita" "media" "kavita-credentials" \
-          "ADMIN_USER" "ADMIN_PASSWORD" "URL" "API_KEY"
 
         # Cloud
         sync_service "Nextcloud" "nextcloud" "nextcloud-local-credentials" \

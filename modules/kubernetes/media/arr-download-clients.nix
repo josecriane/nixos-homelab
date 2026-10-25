@@ -54,11 +54,6 @@ let
       field = "movieCategory";
       category = "movies-es";
     }
-    {
-      app = "bookshelf";
-      field = "bookCategory";
-      category = "books";
-    }
   ];
 
   addClient = c: "add_qbit_client ${c.app} ${c.field} ${c.category}";
@@ -97,7 +92,6 @@ in
         RADARR_ES_API=$(get_secret_value ${ns} radarr-es-credentials API_KEY)
         PROWLARR_API=$(get_secret_value ${ns} prowlarr-credentials API_KEY)
         LIDARR_API=$(get_secret_value ${ns} lidarr-credentials API_KEY)
-        BOOKSHELF_API=$(get_secret_value ${ns} bookshelf-credentials API_KEY)
         QBIT_PASS=$(get_secret_value ${ns} qbittorrent-credentials PASSWORD)
         BAZARR_API=$(get_secret_value ${ns} bazarr-credentials API_KEY)
         # Fallback: read Bazarr API key from auth section of config

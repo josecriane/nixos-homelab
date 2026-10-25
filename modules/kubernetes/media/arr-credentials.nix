@@ -40,10 +40,6 @@ let
       app = "lidarr";
       host = "lidarr";
     }
-    {
-      app = "bookshelf";
-      host = "books";
-    }
   ];
 
   authCall =

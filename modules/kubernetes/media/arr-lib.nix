@@ -29,11 +29,6 @@ let
       api = "v1";
       label = "Lidarr";
     };
-    bookshelf = {
-      port = 8787;
-      api = "v1";
-      label = "Bookshelf";
-    };
     prowlarr = {
       port = 9696;
       api = "v1";

@@ -49,14 +49,6 @@ let
       name = "jellyseerr-config";
       size = "1Gi";
     }
-    {
-      name = "kavita-config";
-      size = "2Gi";
-    }
-    {
-      name = "bookshelf-config";
-      size = "1Gi";
-    }
   ];
 in
 {

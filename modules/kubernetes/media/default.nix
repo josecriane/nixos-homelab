@@ -33,10 +33,9 @@ in
       ./jellyseerr-arr-sync.nix
       ./bazarr
       ./lidarr
-      ./bookshelf
       ./flaresolverr
       ./recyclarr.nix
-      ./kavita
+      ./removed-services.nix
     ]
     ++ lib.optionals (mediaOn && anyNas) [
       ./nas-integration.nix

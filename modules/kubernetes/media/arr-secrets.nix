@@ -60,7 +60,6 @@ in
         ensure_api_key radarr
         ensure_api_key radarr-es
         ensure_api_key lidarr
-        ensure_api_key bookshelf
 
         print_success "arr-stack secrets" \
           "API keys stored in Kubernetes Secrets (namespace: media)" \

@@ -26,13 +26,6 @@ Visit `https://requests.<subdomain>.<domain>` and:
 4. Set it as default for series and movies
 5. Go to Settings > Providers and add subtitle providers (OpenSubtitles.com requires an API key)
 
-## Kavita OIDC
-
-Kavita v0.8+ manages OIDC through the admin UI:
-1. Log in to Kavita as admin
-2. Go to Settings > Authentication
-3. Add your Authentik OIDC provider
-
 ## Quality Profile Tuning
 
 Recyclarr syncs TRaSH Guides profiles automatically. For fine-tuning:

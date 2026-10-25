@@ -36,8 +36,6 @@
 | Bazarr | Subtitle management | `bazarr.<subdomain>.<domain>` |
 | Prowlarr | Indexer management | `prowlarr.<subdomain>.<domain>` |
 | qBittorrent | Torrent client | `qbit.<subdomain>.<domain>` |
-| Bookshelf | Ebook management | `books.<subdomain>.<domain>` |
-| Kavita | Manga/comics reader | `kavita.<subdomain>.<domain>` |
 | FlareSolverr | Cloudflare bypass | internal only |
 | Recyclarr | TRaSH Guides sync | CronJob |
 

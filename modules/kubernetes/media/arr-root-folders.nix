@@ -37,15 +37,6 @@ let
       app = "radarr-es";
       path = "/data/media/movies-es";
     }
-    {
-      app = "bookshelf";
-      path = paths.mediaPath "media/books";
-      extra = {
-        name = "Books";
-        defaultQualityProfileId = 1;
-        defaultMetadataProfileId = 1;
-      };
-    }
   ];
 
   ensureFolder =

@@ -60,10 +60,8 @@
         "jellyseerr-oidc-config-done"
         "bazarr-setup-done"
         "lidarr-setup-done"
-        "bookshelf-setup-done"
         "flaresolverr-setup-done"
         "recyclarr-setup-done"
-        "kavita-setup-done"
         "nas-integration-setup-done"
       ];
     };

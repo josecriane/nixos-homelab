@@ -106,12 +106,6 @@ let
       skipPath = arrSkip;
     }
     {
-      name = "Bookshelf";
-      slug = "bookshelf";
-      host = "books";
-      skipPath = arrSkip;
-    }
-    {
       name = "Prometheus";
       slug = "prometheus";
       host = "prometheus";
