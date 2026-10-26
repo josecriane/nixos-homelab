@@ -1,5 +1,5 @@
 # bjw-s/app-template values for FlareSolverr
-# Cloudflare bypass proxy used by Prowlarr indexers (1337x, EZTV).
+# Cloudflare bypass proxy used by the Prowlarr indexers that need it.
 # Internal-only service: no Ingress, reachable at http://flaresolverr.media:8191
 controllers:
   flaresolverr:

@@ -166,6 +166,26 @@
     ];
   };
 
+  # Prowlarr. Private indexers are added by hand in its UI; the public ones
+  # listed here are created from their Cardigann definition file. Priorities
+  # (1 highest, 50 lowest) only break ties between releases that score the
+  # same, custom formats decide the rest. removedIndexers deletes indexers
+  # whose definition disappeared upstream.
+  prowlarr = {
+    indexers = [
+      {
+        name = "Public Tracker";
+        definition = "publictracker";
+        flaresolverr = false;
+      }
+    ];
+    removedIndexers = [ ];
+    indexerPriorities = {
+      "Private Tracker (API)" = 10;
+      "Public Tracker" = 40;
+    };
+  };
+
   # OpenSubtitles.com (for Bazarr subtitle downloads)
   # Password is stored encrypted via agenix (secrets/opensubtitles-password.age)
   opensubtitles = {

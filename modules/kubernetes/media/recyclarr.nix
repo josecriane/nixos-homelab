@@ -36,43 +36,34 @@ let
             enabled: true
       custom_formats:
         - trash_ids:
-            - 026d5aadd1a6b4e550b134cb6c72b3ca # Uncensored
+            - custom-dual-es
+            - custom-dual-languages
           assign_scores_to:
+            - name: WEB-1080p
+              score: 5000
             - name: "[Anime] Remux-1080p"
-              score: 0
+              score: 5000
         - trash_ids:
-            - b2550eb333d27b75833e25b8c2557b38 # 10bit
-          assign_scores_to:
-            - name: "[Anime] Remux-1080p"
-              score: 10
-        - trash_ids:
-            - 418f50b10f1907201b6cfdf881f467b7 # Anime Dual Audio
-          assign_scores_to:
-            - name: "[Anime] Remux-1080p"
-              score: 0
-  '';
-
-  sonarrEsFragment = pkgs.writeText "recyclarr-sonarr-es.yml" ''
-    sonarr-es:
-      base_url: http://sonarr-es:8989
-      api_key: __API_KEY__
-      quality_definition:
-        type: series
-      quality_profiles:
-        - trash_id: 72dae194fc92bf828f32cde7744e51a1 # WEB-1080p
-          reset_unmatched_scores:
-            enabled: true
-        - trash_id: 20e0fc959f1f1704bed501f23bdae76f # Anime Remux-1080p
-          reset_unmatched_scores:
-            enabled: true
-      custom_formats:
-        - trash_ids:
-            - custom-language-not-spanish
+            - custom-dub-without-original
+            - custom-dub-marker-unparsed
           assign_scores_to:
             - name: WEB-1080p
               score: -10000
             - name: "[Anime] Remux-1080p"
               score: -10000
+        - trash_ids:
+            - custom-latino-only
+          assign_scores_to:
+            - name: WEB-1080p
+              score: -10000
+            - name: "[Anime] Remux-1080p"
+              score: -10000
+        - trash_ids:
+            - ae575f95ab639ba5d15f663bf019e3e8 # Language: Not Original
+            - 47435ece6b99a0b477caf360e79ba0bb # x265 (HD)
+          assign_scores_to:
+            - name: WEB-1080p
+              score: 0
         - trash_ids:
             - 026d5aadd1a6b4e550b134cb6c72b3ca # Uncensored
           assign_scores_to:
@@ -105,43 +96,33 @@ let
             enabled: true
       custom_formats:
         - trash_ids:
-            - 064af5f084a0a24458cc8ecd3220f93f # Uncensored
+            - custom-dual-es
+            - custom-dual-languages
           assign_scores_to:
+            - name: HD Bluray + WEB
+              score: 5000
             - name: "[Anime] Remux-1080p"
-              score: 0
+              score: 5000
         - trash_ids:
-            - a5d148168c4506b55cf53984107c396e # 10bit
-          assign_scores_to:
-            - name: "[Anime] Remux-1080p"
-              score: 10
-        - trash_ids:
-            - 4a3b087eea2ce012fcc1ce319259a3be # Anime Dual Audio
-          assign_scores_to:
-            - name: "[Anime] Remux-1080p"
-              score: 0
-  '';
-
-  radarrEsFragment = pkgs.writeText "recyclarr-radarr-es.yml" ''
-    radarr-es:
-      base_url: http://radarr-es:7878
-      api_key: __API_KEY__
-      quality_definition:
-        type: movie
-      quality_profiles:
-        - trash_id: d1d67249d3890e49bc12e275d989a7e9 # HD Bluray + WEB
-          reset_unmatched_scores:
-            enabled: true
-        - trash_id: 722b624f9af1e492284c4bc842153a38 # Anime
-          reset_unmatched_scores:
-            enabled: true
-      custom_formats:
-        - trash_ids:
-            - custom-language-not-spanish
+            - custom-dub-without-original
+            - custom-dub-marker-unparsed
           assign_scores_to:
             - name: HD Bluray + WEB
               score: -10000
             - name: "[Anime] Remux-1080p"
               score: -10000
+        - trash_ids:
+            - custom-latino-only
+          assign_scores_to:
+            - name: HD Bluray + WEB
+              score: -10000
+            - name: "[Anime] Remux-1080p"
+              score: -10000
+        - trash_ids:
+            - dc98083864ea246d05a42df0d05f81cc # x265 (HD)
+          assign_scores_to:
+            - name: HD Bluray + WEB
+              score: 0
         - trash_ids:
             - 064af5f084a0a24458cc8ecd3220f93f # Uncensored
           assign_scores_to:
@@ -171,27 +152,64 @@ let
         path: /config/custom-formats/sonarr
   '';
 
-  customFormatNotSpanish = pkgs.writeText "language-not-spanish.json" (
-    builtins.toJSON {
-      trash_id = "custom-language-not-spanish";
-      trash_scores = {
-        default = -10000;
-      };
-      name = "Language: Not Spanish";
-      includeCustomFormatWhenRenaming = false;
-      specifications = [
-        {
-          name = "Not Spanish Language";
-          implementation = "LanguageSpecification";
-          negate = true;
-          required = false;
-          fields = {
-            value = 3;
-          };
-        }
-      ];
-    }
-  );
+  dualRegex = "\\b(DUAL|MULTi?)\\b|Castellano[ ._-]+Ingl[eé]s|\\bESP\\b.*\\b(ING|ENG)\\b|\\bES[ ._-]?EN\\b|\\bESP[ ._-]?ENG\\b|\\bSpa[ ._-]?Eng\\b|\\bEng[ ._-]?Spa\\b";
+  dubMarkerRegex = "\\b(Cast|ESP)\\b";
+  latinoRegex = "\\bLatino\\b";
+  castellanoRegex = "Castellano|\\bCast\\b|\\bESP\\b|Español";
+  spanishMarkerRegex = "\\b(ES|ESP|Castellano|Spanish|Español|Spa|EMUWAREZ|BAPTISTERIO|SPWEB)\\b";
+
+  titleSpec = name: negate: value: {
+    inherit name negate;
+    implementation = "ReleaseTitleSpecification";
+    required = true;
+    fields = { inherit value; };
+  };
+
+  languageSpec = name: negate: value: {
+    inherit name negate;
+    implementation = "LanguageSpecification";
+    required = true;
+    fields = { inherit value; };
+  };
+
+  originalLanguage = -2;
+  spanishLanguage = 3;
+
+  customFormat = id: name: score: specifications: {
+    name = "${id}.json";
+    path = pkgs.writeText "${id}.json" (
+      builtins.toJSON {
+        trash_id = "custom-${id}";
+        trash_scores.default = score;
+        inherit name specifications;
+        includeCustomFormatWhenRenaming = false;
+      }
+    );
+  };
+
+  customFormats = [
+    (customFormat "dual-es" "Audio: Dual ES" 5000 [
+      (titleSpec "Dual marker" false dualRegex)
+      (titleSpec "Spanish marker" false spanishMarkerRegex)
+    ])
+    (customFormat "dub-without-original" "Language: Dub without original" (-10000) [
+      (languageSpec "Not original" true originalLanguage)
+      (titleSpec "No dual marker" true dualRegex)
+    ])
+    (customFormat "dual-languages" "Audio: Dual ES (languages)" 5000 [
+      (languageSpec "Spanish" false spanishLanguage)
+      (languageSpec "Original" false originalLanguage)
+    ])
+    (customFormat "latino-only" "Audio: Latino without Castellano" (-10000) [
+      (titleSpec "Latino marker" false latinoRegex)
+      (titleSpec "No Castellano marker" true castellanoRegex)
+    ])
+    (customFormat "dub-marker-unparsed" "Language: Dub marker unparsed" (-10000) [
+      (titleSpec "Dub marker" false dubMarkerRegex)
+      (languageSpec "Not parsed as Spanish" true spanishLanguage)
+      (titleSpec "No dual marker" true dualRegex)
+    ])
+  ];
 
   sed = "${pkgs.gnused}/bin/sed";
 in
@@ -262,11 +280,9 @@ in
 
         HAVE_SONARR=""
         emit_fragment sonarr    "${sonarrMainFragment}" "$SONARR_BODY" && HAVE_SONARR=1 || true
-        emit_fragment sonarr-es "${sonarrEsFragment}"   "$SONARR_BODY" && HAVE_SONARR=1 || true
 
         HAVE_RADARR=""
         emit_fragment radarr    "${radarrMainFragment}" "$RADARR_BODY" && HAVE_RADARR=1 || true
-        emit_fragment radarr-es "${radarrEsFragment}"   "$RADARR_BODY" && HAVE_RADARR=1 || true
 
         > "$TMPDIR/recyclarr.yml"
         if [ -n "$HAVE_SONARR" ]; then
@@ -292,7 +308,7 @@ in
           --dry-run=client -o yaml | $KUBECTL apply -f -
 
         $KUBECTL create configmap recyclarr-custom-formats -n ${ns} \
-          --from-file=language-not-spanish.json=${customFormatNotSpanish} \
+          ${lib.concatMapStringsSep " " (f: "--from-file=${f.name}=${f.path}") customFormats} \
           --dry-run=client -o yaml | $KUBECTL apply -f -
 
         # Create CronJob that runs recyclarr sync every 12 hours
@@ -324,28 +340,24 @@ in
           sleep 10
         done
 
-        # Set language to "Spanish" on ES quality profiles so they accept
-        # Spanish releases (profile-level "Original" language would reject them).
-        # Only runs for services that are ready.
-        set_es_language() {
+        set_profile_language() {
           local svc=$1 port=$2 key
           if ! key=$(get_live_api_key "$svc") || [ -z "$key" ]; then
-            echo "  Skipped language update (not ready): $svc"
+            echo "  Skipped profile language (not ready): $svc"
             return 0
           fi
-          echo "  Setting Spanish language on $svc quality profiles..."
           for PROFILE_ID in $($KUBECTL exec -n ${ns} "deploy/$svc" -c main -- \
-              curl -s "http://localhost:$port/api/v3/qualityprofile" -H "X-Api-Key: $key" 2>/dev/null | $JQ '.[].id'); do
+              curl -s "http://localhost:$port/api/v3/qualityprofile" -H "X-Api-Key: $key" 2>/dev/null | $JQ '.[] | select(.language.id != -1) | .id'); do
             $KUBECTL exec -n ${ns} "deploy/$svc" -c main -- \
               curl -s "http://localhost:$port/api/v3/qualityprofile/$PROFILE_ID" -H "X-Api-Key: $key" 2>/dev/null | \
-              $JQ '.language = {"id": 3, "name": "Spanish"}' | \
+              $JQ '.language = {"id": -1, "name": "Any"}' | \
               $KUBECTL exec -i -n ${ns} "deploy/$svc" -c main -- \
                 curl -s -o /dev/null -X PUT "http://localhost:$port/api/v3/qualityprofile/$PROFILE_ID" \
                   -H "X-Api-Key: $key" -H "Content-Type: application/json" -d @- 2>/dev/null
+            echo "  $svc: profile $PROFILE_ID language set to Any"
           done
         }
-        set_es_language radarr-es 7878
-        set_es_language sonarr-es 8989
+        set_profile_language radarr 7878
 
         print_success "Recyclarr" \
           "CronJob: every 12 hours" \

@@ -182,11 +182,7 @@ in
         # Arr stack
         sync_service "Sonarr" "media" "sonarr-credentials" \
           "USER" "PASSWORD" "URL" "API_KEY"
-        sync_service "Sonarr ES" "media" "sonarr-es-credentials" \
-          "USER" "PASSWORD" "URL" "API_KEY"
         sync_service "Radarr" "media" "radarr-credentials" \
-          "USER" "PASSWORD" "URL" "API_KEY"
-        sync_service "Radarr ES" "media" "radarr-es-credentials" \
           "USER" "PASSWORD" "URL" "API_KEY"
         sync_service "Prowlarr" "media" "prowlarr-credentials" \
           "USER" "PASSWORD" "URL" "API_KEY"

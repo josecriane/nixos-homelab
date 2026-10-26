@@ -44,16 +44,6 @@ let
       field = "musicCategory";
       category = "music";
     }
-    {
-      app = "sonarr-es";
-      field = "tvCategory";
-      category = "tv-es";
-    }
-    {
-      app = "radarr-es";
-      field = "movieCategory";
-      category = "movies-es";
-    }
   ];
 
   addClient = c: "add_qbit_client ${c.app} ${c.field} ${c.category}";
@@ -87,9 +77,7 @@ in
         # LOAD ALL CREDENTIALS
         # ============================================
         SONARR_API=$(get_secret_value ${ns} sonarr-credentials API_KEY)
-        SONARR_ES_API=$(get_secret_value ${ns} sonarr-es-credentials API_KEY)
         RADARR_API=$(get_secret_value ${ns} radarr-credentials API_KEY)
-        RADARR_ES_API=$(get_secret_value ${ns} radarr-es-credentials API_KEY)
         PROWLARR_API=$(get_secret_value ${ns} prowlarr-credentials API_KEY)
         LIDARR_API=$(get_secret_value ${ns} lidarr-credentials API_KEY)
         QBIT_PASS=$(get_secret_value ${ns} qbittorrent-credentials PASSWORD)

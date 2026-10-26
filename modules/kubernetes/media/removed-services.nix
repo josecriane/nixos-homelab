@@ -5,6 +5,8 @@ let
   releases = [
     "bookshelf"
     "kavita"
+    "sonarr-es"
+    "radarr-es"
   ];
 
   cleanup = pkgs.writeShellScript "media-removed-cleanup" ''
@@ -24,7 +26,7 @@ let
 in
 {
   systemd.services.media-removed-cleanup = {
-    description = "Remove the Bookshelf and Kavita releases";
+    description = "Remove the Bookshelf, Kavita, Sonarr ES and Radarr ES releases";
     after = [ "k3s-apps.target" ];
     wantedBy = [ "k3s-extras.target" ];
     before = [ "k3s-extras.target" ];

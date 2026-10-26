@@ -2,6 +2,7 @@
   k8s,
   lib,
   pkgs,
+  serverConfig,
   ...
 }:
 
@@ -52,7 +53,6 @@ let
       port = 8989;
       categories = syncCategories.tv;
       anime = true;
-      tag = "english";
     }
     {
       name = "Radarr";
@@ -60,7 +60,6 @@ let
       implementation = "Radarr";
       port = 7878;
       categories = syncCategories.movies;
-      tag = "english";
     }
     {
       name = "Lidarr";
@@ -68,37 +67,38 @@ let
       implementation = "Lidarr";
       port = 8686;
       categories = syncCategories.music;
-      tag = "english";
-    }
-    {
-      name = "Sonarr ES";
-      app = "sonarr-es";
-      implementation = "Sonarr";
-      port = 8989;
-      categories = syncCategories.tv;
-      anime = true;
-      tag = "spanish";
-    }
-    {
-      name = "Radarr ES";
-      app = "radarr-es";
-      implementation = "Radarr";
-      port = 7878;
-      categories = syncCategories.movies;
-      tag = "spanish";
     }
   ];
 
-  registerApp =
-    entry:
-    let
-      tagVar = "${lib.toUpper entry.tag}_TAG_ID";
-    in
-    ''
-      register_app ${lib.escapeShellArg entry.name} ${entry.app} ${entry.implementation} ${toString entry.port} \
-        ${lib.escapeShellArg (builtins.toJSON entry.categories)} ${
-          if entry.anime or false then "true" else "false"
-        } "''$${tagVar}"'';
+  prowlarrCfg = serverConfig.prowlarr or { };
+  indexers = prowlarrCfg.indexers or [ ];
+  removedIndexers = prowlarrCfg.removedIndexers or [ ];
+  indexerPriorities = prowlarrCfg.indexerPriorities or { };
+
+  indexerDefs = lib.concatMapStringsSep " " (
+    i: lib.escapeShellArg "${i.name}:${i.definition}"
+  ) indexers;
+
+  flaresolverrDefs = lib.concatMapStringsSep " " (i: i.definition) (
+    lib.filter (i: i.flaresolverr or false) indexers
+  );
+
+  registerApp = entry: ''
+    register_app ${lib.escapeShellArg entry.name} ${entry.app} ${entry.implementation} ${toString entry.port} \
+      ${lib.escapeShellArg (builtins.toJSON entry.categories)} ${
+        if entry.anime or false then "true" else "false"
+      }'';
+
+  priorityCall = name: priority: "set_priority ${lib.escapeShellArg name} ${toString priority}";
+
+  removeCall = name: "remove_indexer ${lib.escapeShellArg name}";
+
+  removedApps = [
+    "Sonarr ES"
+    "Radarr ES"
+  ];
+
+  removeAppCall = name: "remove_app ${lib.escapeShellArg name}";
 in
 {
   systemd.services.arr-prowlarr-sync-setup = {
@@ -106,9 +106,13 @@ in
     after = [
       "k3s-apps.target"
       "arr-credentials-setup.service"
+      "prowlarr-setup.service"
     ];
     requires = [ "k3s-apps.target" ];
-    wants = [ "arr-credentials-setup.service" ];
+    wants = [
+      "arr-credentials-setup.service"
+      "prowlarr-setup.service"
+    ];
     wantedBy = [ "k3s-extras.target" ];
     before = [ "k3s-extras.target" ];
 
@@ -132,9 +136,7 @@ in
         # LOAD ALL CREDENTIALS
         # ============================================
         SONARR_API=$(get_secret_value ${ns} sonarr-credentials API_KEY)
-        SONARR_ES_API=$(get_secret_value ${ns} sonarr-es-credentials API_KEY)
         RADARR_API=$(get_secret_value ${ns} radarr-credentials API_KEY)
-        RADARR_ES_API=$(get_secret_value ${ns} radarr-es-credentials API_KEY)
         PROWLARR_API=$(get_secret_value ${ns} prowlarr-credentials API_KEY)
         LIDARR_API=$(get_secret_value ${ns} lidarr-credentials API_KEY)
         QBIT_PASS=$(get_secret_value ${ns} qbittorrent-credentials PASSWORD)
@@ -160,22 +162,9 @@ in
           exit 0
         fi
 
-        ensure_tag() {
-          local label="$1" id
-          id=$(arr_get prowlarr tag | $JQ -r --arg l "$label" '.[] | select(.label == $l) | .id' 2>/dev/null | head -1)
-          if [ -z "$id" ]; then
-            id=$(arr_post prowlarr tag "{\"label\": \"$label\"}" | $JQ -r '.id // empty' 2>/dev/null)
-            echo "  Prowlarr: tag '$label' created (id: $id)" >&2
-          fi
-          printf '%s' "$id"
-        }
-
-        SPANISH_TAG_ID=$(ensure_tag spanish)
-        ENGLISH_TAG_ID=$(ensure_tag english)
-
         register_app() {
-          local name="$1" app="$2" implementation="$3" port="$4" categories="$5" anime="$6" tag="$7"
-          local payload
+          local name="$1" app="$2" implementation="$3" port="$4" categories="$5" anime="$6"
+          local payload existing
 
           if [ -z "$(arr_stable_key "$app")" ] && [ -z "$(arr_key "$app")" ]; then
             echo "  Prowlarr -> $name: no API key, skipped"
@@ -188,8 +177,7 @@ in
             --arg baseUrl "http://$app:$port" \
             --arg apiKey "$(arr_key "$app")" \
             --argjson categories "$categories" \
-            --argjson anime "$anime" \
-            --argjson tag "''${tag:-0}" '
+            --argjson anime "$anime" '
             {
               name: $name,
               syncLevel: "fullSync",
@@ -207,14 +195,31 @@ in
                       {name: "syncAnimeStandardFormatSearch", value: true}]
                    else [] end)
               ),
-              tags: [$tag]
+              tags: []
             }')
 
-          arr_ensure prowlarr applications "$payload" \
-            ".[] | select(.name == \"$name\")" "app $name"
+          existing=$(arr_get prowlarr applications | $JQ -r --arg n "$name" '.[] | select(.name == $n) | .id' 2>/dev/null)
+          if [ -n "$existing" ]; then
+            arr_enforce prowlarr "applications/$existing?forceSave=true" \
+              "$(echo "$payload" | $JQ --argjson id "$existing" '.id = $id')" "app $name"
+          else
+            arr_ensure prowlarr "applications?forceSave=true" "$payload" \
+              ".[] | select(.name == \"$name\")" "app $name"
+          fi
         }
 
         ${lib.concatMapStringsSep "\n        " registerApp apps}
+
+        remove_app() {
+          local name="$1" id
+          id=$(arr_get prowlarr applications | $JQ -r --arg n "$name" '.[] | select(.name == $n) | .id' 2>/dev/null)
+          if [ -n "$id" ]; then
+            arr_request prowlarr DELETE "applications/$id" >/dev/null 2>&1
+            echo "  Prowlarr: app $name removed"
+          fi
+        }
+
+        ${lib.concatMapStringsSep "\n        " removeAppCall removedApps}
 
         echo ""
         echo "=== Configuring indexers in Prowlarr ==="
@@ -256,7 +261,7 @@ in
             fi
           }
 
-          # Configure FlareSolverr as indexer proxy in Prowlarr (needed for 1337x, EZTV)
+          # Configure FlareSolverr as indexer proxy in Prowlarr (Cloudflare-protected indexers)
           FLARESOLVERR_EXISTS=$($KUBECTL exec -n ${ns} deploy/prowlarr -- \
             curl -s "http://localhost:9696/api/v1/indexerProxy" \
             -H "X-Api-Key: $PROWLARR_API" 2>/dev/null | $JQ '.[] | select(.name == "FlareSolverr")' || echo "")
@@ -322,12 +327,10 @@ in
           PENDING_SQL=$(mktemp)
 
           # Indexers that need FlareSolverr (Cloudflare-protected sites)
-          FLARESOLVERR_INDEXERS="1337x eztv"
+          FLARESOLVERR_INDEXERS=${lib.escapeShellArg flaresolverrDefs}
 
           # Add public indexers via Cardigann definitions
-          SPANISH_INDEXER_FILES="frozenlayer elitetorrent-wf unionfansub"
-
-          for indexer_def in "thepiratebay:thepiratebay" "1337x:1337x" "eztv:eztv" "Nyaa.si:nyaasi" "Internet Archive:internetarchive" "MoviesDVDR:moviesdvdr" "Frozen Layer:frozenlayer" "Elitetorrent-wf:elitetorrent-wf" "Union Fansub:unionfansub"; do
+          for indexer_def in ${indexerDefs}; do
             IFS=':' read -r indexer_name indexer_file <<< "$indexer_def"
 
             EXISTING=$($KUBECTL exec -n ${ns} deploy/prowlarr -- \
@@ -337,15 +340,9 @@ in
             if [ -n "$EXISTING" ]; then
               echo "  $indexer_name: already configured"
             else
-              # Determine tags (FlareSolverr + language)
               TAGS="[]"
               if [ -n "$FS_TAG_ID" ] && echo "$FLARESOLVERR_INDEXERS" | grep -qw "$indexer_file"; then
                 TAGS=$(echo "$TAGS" | $JQ ". + [$FS_TAG_ID]")
-              fi
-              if echo "$SPANISH_INDEXER_FILES" | grep -qw "$indexer_file"; then
-                [ -n "$SPANISH_TAG_ID" ] && TAGS=$(echo "$TAGS" | $JQ ". + [$SPANISH_TAG_ID]")
-              else
-                [ -n "$ENGLISH_TAG_ID" ] && TAGS=$(echo "$TAGS" | $JQ ". + [$ENGLISH_TAG_ID]")
               fi
 
               RESULT=$($KUBECTL exec -n ${ns} deploy/prowlarr -- \
@@ -413,6 +410,38 @@ in
             $KUBECTL rollout status -n ${ns} deploy/prowlarr --timeout=120s 2>/dev/null
           fi
           rm -f "$PENDING_SQL"
+
+          remove_indexer() {
+            local name="$1" id
+            id=$(arr_get prowlarr indexer | $JQ -r --arg n "$name" '.[] | select(.name == $n) | .id' 2>/dev/null)
+            if [ -n "$id" ]; then
+              arr_request prowlarr DELETE "indexer/$id" >/dev/null 2>&1
+              echo "  $name: removed, its definition no longer exists upstream"
+            fi
+          }
+
+          ${lib.concatMapStringsSep "\n          " removeCall removedIndexers}
+
+          echo ""
+          echo "=== Applying indexer priorities ==="
+          INDEXERS=$(arr_get prowlarr indexer)
+          set_priority() {
+            local name="$1" priority="$2" id current
+            id=$(echo "$INDEXERS" | $JQ -r --arg n "$name" '.[] | select(.name == $n) | .id' 2>/dev/null)
+            if [ -z "$id" ]; then
+              echo "  $name: not in Prowlarr, skipped"
+              return 0
+            fi
+            current=$(echo "$INDEXERS" | $JQ -r --arg n "$name" '.[] | select(.name == $n) | .priority' 2>/dev/null)
+            if [ "$current" = "$priority" ]; then
+              echo "  $name: priority $priority"
+              return 0
+            fi
+            arr_put prowlarr indexer/bulk "{\"ids\": [$id], \"priority\": $priority}" >/dev/null 2>&1
+            echo "  $name: priority $current -> $priority"
+          }
+
+          ${lib.concatStringsSep "\n          " (lib.mapAttrsToList priorityCall indexerPriorities)}
 
           echo "  Indexers will sync automatically to Sonarr/Radarr/Lidarr"
 

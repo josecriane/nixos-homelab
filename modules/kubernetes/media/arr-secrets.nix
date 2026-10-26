@@ -56,9 +56,7 @@ in
         echo "Generating stable API keys for arr services..."
         ensure_api_key prowlarr
         ensure_api_key sonarr
-        ensure_api_key sonarr-es
         ensure_api_key radarr
-        ensure_api_key radarr-es
         ensure_api_key lidarr
 
         print_success "arr-stack secrets" \

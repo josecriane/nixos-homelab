@@ -16,8 +16,8 @@ Every service runs as a Kubernetes pod, gets a TLS certificate, and is accessibl
 |---------|-----|-------------|
 | [Jellyfin](https://jellyfin.org/) | `jellyfin.*` | Media server. Streams movies, TV, music, and books to any device. |
 | [Jellyseerr](https://github.com/Fallenbagel/jellyseerr) | `requests.*` | Request portal. Users request movies or TV shows, and it sends them to the arr-stack. |
-| [Sonarr](https://sonarr.tv/) | `sonarr.*` | TV show manager. Monitors series, grabs new episodes, renames and organizes files. Runs two instances (EN + ES). |
-| [Radarr](https://radarr.video/) | `radarr.*` | Movie manager. Same as Sonarr but for movies. Two instances (EN + ES). |
+| [Sonarr](https://sonarr.tv/) | `sonarr.*` | TV show manager. Monitors series, grabs new episodes, renames and organizes files. Prefers dual Spanish+original audio and rejects dubs. |
+| [Radarr](https://radarr.video/) | `radarr.*` | Movie manager. Same as Sonarr but for movies. |
 | [Lidarr](https://lidarr.audio/) | `lidarr.*` | Music manager. Monitors artists, grabs albums, organizes music library. |
 | [Prowlarr](https://prowlarr.com/) | `prowlarr.*` | Indexer manager. Centralizes torrent indexers and pushes them to Sonarr/Radarr/Lidarr. |
 | [qBittorrent](https://www.qbittorrent.org/) | `qbit.*` | Torrent client. Downloads everything the arr-stack sends it. |
@@ -423,7 +423,7 @@ flowchart TD
     subgraph T4["Tier 4: Media"]
         sso["authentik-sso"]
         arrsecrets["arr-secrets"]
-        arrstack["arr-stack<br/>Prowlarr, Sonarr x2, Radarr x2, qBittorrent"]
+        arrstack["arr-stack<br/>Prowlarr, Sonarr, Radarr, qBittorrent"]
         jellyfin["Jellyfin"]
         jellyseerr["Jellyseerr"]
         bazarr["Bazarr"]

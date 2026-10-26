@@ -12,7 +12,7 @@ in
 helpers.mkArrRelease {
   name = "prowlarr";
   imageRepo = "lscr.io/linuxserver/prowlarr";
-  imageTag = "2.3.0";
+  imageTag = "2.6.5";
   port = 9696;
   configPvc = "prowlarr-config";
   apiKeySecret = "prowlarr-api-key";

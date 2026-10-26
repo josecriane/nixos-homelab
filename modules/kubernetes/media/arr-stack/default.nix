@@ -12,9 +12,7 @@
   imports = [
     ./prowlarr.nix
     ./sonarr.nix
-    ./sonarr-es.nix
     ./radarr.nix
-    ./radarr-es.nix
     ./qbittorrent
     ./qbittorrent/password.nix
   ];
@@ -24,17 +22,13 @@
     after = [
       "prowlarr-setup.service"
       "sonarr-setup.service"
-      "sonarr-es-setup.service"
       "radarr-setup.service"
-      "radarr-es-setup.service"
       "qbittorrent-setup.service"
     ];
     wants = [
       "prowlarr-setup.service"
       "sonarr-setup.service"
-      "sonarr-es-setup.service"
       "radarr-setup.service"
-      "radarr-es-setup.service"
       "qbittorrent-setup.service"
     ];
     wantedBy = [ "k3s-apps.target" ];

@@ -9,20 +9,10 @@ let
       api = "v3";
       label = "Sonarr";
     };
-    sonarr-es = {
-      port = 8989;
-      api = "v3";
-      label = "Sonarr ES";
-    };
     radarr = {
       port = 7878;
       api = "v3";
       label = "Radarr";
-    };
-    radarr-es = {
-      port = 7878;
-      api = "v3";
-      label = "Radarr ES";
     };
     lidarr = {
       port = 8686;
@@ -133,7 +123,7 @@ let
       fi
       if [ -n "$body" ]; then
         $KUBECTL exec -n ${ns} deploy/"$app" -- curl -s -X "$method" "$base/$path" \
-          -H "X-Api-Key: $key" -H "Content-Type: application/json" -d "$body" 2>&1
+          -H "X-Api-Key: $key" -H "Content-Type: application/json" -d "$body" 2>/dev/null
       else
         $KUBECTL exec -n ${ns} deploy/"$app" -- curl -s -X "$method" "$base/$path" \
           -H "X-Api-Key: $key" 2>/dev/null

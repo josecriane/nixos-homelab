@@ -17,20 +17,8 @@ let
       host = "sonarr";
     }
     {
-      app = "sonarr-es";
-      host = "sonarr-es";
-      pre = ''
-        $KUBECTL exec -n ${ns} deploy/sonarr-es -- \
-          sed -i 's/<AuthenticationMethod>None</<AuthenticationMethod>Forms</' /config/config.xml 2>/dev/null || true
-      '';
-    }
-    {
       app = "radarr";
       host = "radarr";
-    }
-    {
-      app = "radarr-es";
-      host = "radarr-es";
     }
     {
       app = "prowlarr";

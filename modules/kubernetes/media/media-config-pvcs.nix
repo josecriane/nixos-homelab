@@ -18,15 +18,7 @@ let
       size = "1Gi";
     }
     {
-      name = "sonarr-es-config";
-      size = "1Gi";
-    }
-    {
       name = "radarr-config";
-      size = "1Gi";
-    }
-    {
-      name = "radarr-es-config";
       size = "1Gi";
     }
     {

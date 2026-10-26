@@ -27,20 +27,6 @@ let
         "onMovieFileDelete"
       ];
     }
-    {
-      app = "sonarr-es";
-      deleteEvents = [
-        "onSeriesDelete"
-        "onEpisodeFileDelete"
-      ];
-    }
-    {
-      app = "radarr-es";
-      deleteEvents = [
-        "onMovieDelete"
-        "onMovieFileDelete"
-      ];
-    }
   ];
 
   notificationCall =
@@ -79,9 +65,7 @@ in
         ${arr.helpers}
 
         SONARR_API=$(get_secret_value ${ns} sonarr-credentials API_KEY)
-        SONARR_ES_API=$(get_secret_value ${ns} sonarr-es-credentials API_KEY)
         RADARR_API=$(get_secret_value ${ns} radarr-credentials API_KEY)
-        RADARR_ES_API=$(get_secret_value ${ns} radarr-es-credentials API_KEY)
 
         if [ -z "$SONARR_API" ] || [ -z "$RADARR_API" ]; then
           echo "ERROR: Required credentials not found"
@@ -179,8 +163,8 @@ in
               -H "X-Api-Key: $SONARR_API" 2>/dev/null)
             SONARR_PROFILE_ID=$(echo "$SONARR_PROFILES" | $JQ '[.[] | select(.name == "WEB-1080p")][0].id // .[0].id' 2>/dev/null || echo "1")
             SONARR_PROFILE_NAME=$(echo "$SONARR_PROFILES" | $JQ -r '[.[] | select(.name == "WEB-1080p")][0].name // .[0].name' 2>/dev/null || echo "Any")
-            SONARR_ANIME_PROFILE_ID=$(echo "$SONARR_PROFILES" | $JQ '[.[] | select(.name == "Remux-1080p - Anime")][0].id // .[0].id' 2>/dev/null || echo "1")
-            SONARR_ANIME_PROFILE_NAME=$(echo "$SONARR_PROFILES" | $JQ -r '[.[] | select(.name == "Remux-1080p - Anime")][0].name // .[0].name' 2>/dev/null || echo "Any")
+            SONARR_ANIME_PROFILE_ID=$(echo "$SONARR_PROFILES" | $JQ '[.[] | select(.name == "[Anime] Remux-1080p")][0].id // .[0].id' 2>/dev/null || echo "1")
+            SONARR_ANIME_PROFILE_NAME=$(echo "$SONARR_PROFILES" | $JQ -r '[.[] | select(.name == "[Anime] Remux-1080p")][0].name // .[0].name' 2>/dev/null || echo "Any")
 
             # Step 1: Scale down and write Radarr/Sonarr config to settings.json
             echo "    Writing Radarr/Sonarr config to settings.json..."
@@ -197,13 +181,11 @@ in
                 --arg radarr_api "$RADARR_API" \
                 --argjson radarr_pid "''${RADARR_PROFILE_ID:-1}" \
                 --arg radarr_pname "''${RADARR_PROFILE_NAME:-Any}" \
-                --arg radarr_es_api "$RADARR_ES_API" \
                 --arg sonarr_api "$SONARR_API" \
                 --argjson sonarr_pid "''${SONARR_PROFILE_ID:-1}" \
                 --arg sonarr_pname "''${SONARR_PROFILE_NAME:-Any}" \
                 --argjson sonarr_anime_pid "''${SONARR_ANIME_PROFILE_ID:-1}" \
                 --arg sonarr_anime_pname "''${SONARR_ANIME_PROFILE_NAME:-Any}" \
-                --arg sonarr_es_api "$SONARR_ES_API" \
                 '
                 .jellyfin.ip = "" |
                 .jellyfin.apiKey = "" |
@@ -220,14 +202,6 @@ in
                   "minimumAvailability": "released", "isDefault": true,
                   "externalUrl": "https://${k8s.hostname "radarr"}",
                   "syncEnabled": false, "preventSearch": false
-                }, {
-                  "id": 1, "name": "Radarr Spanish", "hostname": "radarr-es.media.svc.cluster.local", "port": 7878,
-                  "apiKey": $radarr_es_api, "useSsl": false, "baseUrl": "",
-                  "activeProfileId": $radarr_pid, "activeProfileName": $radarr_pname,
-                  "activeDirectory": "/data/media/movies-es", "is4k": false,
-                  "minimumAvailability": "released", "isDefault": false,
-                  "externalUrl": "https://${k8s.hostname "radarr-es"}",
-                  "syncEnabled": false, "preventSearch": false
                 }] |
                 .sonarr = [{
                   "id": 0, "name": "Sonarr", "hostname": "sonarr.media.svc.cluster.local", "port": 8989,
@@ -240,18 +214,6 @@ in
                   "animeLookupSource": "tvdb",
                   "is4k": false, "isDefault": true,
                   "externalUrl": "https://${k8s.hostname "sonarr"}",
-                  "syncEnabled": false, "preventSearch": false, "enableSeasonFolders": true
-                }, {
-                  "id": 1, "name": "Sonarr Spanish", "hostname": "sonarr-es.media.svc.cluster.local", "port": 8989,
-                  "apiKey": $sonarr_es_api, "useSsl": false, "baseUrl": "",
-                  "activeProfileId": $sonarr_pid, "activeProfileName": $sonarr_pname,
-                  "activeDirectory": "/data/media/tv-es",
-                  "activeAnimeProfileId": $sonarr_anime_pid, "activeAnimeProfileName": $sonarr_anime_pname,
-                  "activeAnimeDirectory": "/data/media/tv-es",
-                  "activeLanguageProfileId": 1, "animeLanguageProfileId": 1,
-                  "animeLookupSource": "tvdb",
-                  "is4k": false, "isDefault": false,
-                  "externalUrl": "https://${k8s.hostname "sonarr-es"}",
                   "syncEnabled": false, "preventSearch": false, "enableSeasonFolders": true
                 }]
                 ' "$JSEERR_SETTINGS" > "''${JSEERR_SETTINGS}.tmp" && mv "''${JSEERR_SETTINGS}.tmp" "$JSEERR_SETTINGS"

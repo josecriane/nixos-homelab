@@ -32,11 +32,9 @@ spec:
               mountPath: /config/settings.yml
               subPath: settings.yml
             - name: cf-radarr
-              mountPath: /config/custom-formats/radarr/language-not-spanish.json
-              subPath: language-not-spanish.json
+              mountPath: /config/custom-formats/radarr
             - name: cf-sonarr
-              mountPath: /config/custom-formats/sonarr/language-not-spanish.json
-              subPath: language-not-spanish.json
+              mountPath: /config/custom-formats/sonarr
           volumes:
           - name: config
             configMap:

@@ -49,17 +49,7 @@ let
       mgmt = "sonarrMgmt";
     }
     {
-      app = "sonarr-es";
-      naming = "sonarrNaming";
-      mgmt = "sonarrMgmt";
-    }
-    {
       app = "radarr";
-      naming = "radarrNaming";
-      mgmt = "radarrMgmt";
-    }
-    {
-      app = "radarr-es";
       naming = "radarrNaming";
       mgmt = "radarrMgmt";
     }

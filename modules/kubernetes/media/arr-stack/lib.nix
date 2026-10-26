@@ -1,5 +1,5 @@
 # Shared helper to build an arr-instance Helm release module.
-# Each instance (prowlarr, sonarr, radarr, sonarr-es, radarr-es) uses the
+# Each instance (prowlarr, sonarr, radarr) uses the
 # bjw-s/app-template chart. Values are built as a Nix attrset and passed
 # directly to createHelmRelease (serialized to JSON, converted to YAML at
 # deploy time via yq). No template file, no token substitution.

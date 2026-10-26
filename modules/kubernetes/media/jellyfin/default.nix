@@ -34,23 +34,20 @@ let
       name = "Music";
       path = "/data/music";
     }
-    {
-      type = "movies";
-      name = "Peliculas ES";
-      path = "/data/movies-es";
-    }
-    {
-      type = "tvshows";
-      name = "Series ES";
-      path = "/data/tv-es";
-    }
+  ];
+  legacyLibraries = [
+    "Peliculas ES"
+    "Series ES"
   ];
   libraries = config.homelab.jellyfin.libraries or defaultLibraries;
   libraryNames = map (l: l.name) libraries;
-  libraryEntries = lib.concatMapStringsSep " " (l: ''"${l.type}:${l.name}:${l.path}"'') libraries;
-  libraryPaths = lib.concatMapStringsSep " " (l: l.path) libraries;
+  pathsOf = l: l.paths or [ l.path ];
+  libraryEntries = lib.concatMapStringsSep " " (
+    l: lib.concatMapStringsSep " " (p: ''"${l.type}:${l.name}:${p}"'') (pathsOf l)
+  ) libraries;
+  libraryPaths = lib.concatMapStringsSep " " (l: lib.concatStringsSep " " (pathsOf l)) libraries;
   removedLibraries = lib.concatMapStringsSep " " (n: ''"${n}"'') (
-    lib.filter (n: !(lib.elem n libraryNames)) (map (l: l.name) defaultLibraries)
+    lib.filter (n: !(lib.elem n libraryNames)) (map (l: l.name) defaultLibraries ++ legacyLibraries)
   );
 
   release = k8s.createHelmRelease {
@@ -229,6 +226,11 @@ lib.recursiveUpdate release {
                 $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders/Paths?refreshLibrary=false&api_key=$ACCESS_TOKEN" \
                   -H "Content-Type: application/json" -d "{\"Name\":\"$lib_name\",\"Path\":\"$lib_path\"}" 2>/dev/null || true
                 echo "  Library created: $lib_name ($lib_path)"
+                EXISTING_LIBS=$($CURL -s "$JELLYFIN_URL/Library/VirtualFolders?api_key=$ACCESS_TOKEN" 2>/dev/null)
+              elif ! echo "$EXISTING_LIBS" | $JQ -e --arg n "$lib_name" --arg p "$lib_path" '.[] | select(.Name == $n) | .Locations | index($p)' >/dev/null 2>&1; then
+                $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders/Paths?refreshLibrary=false&api_key=$ACCESS_TOKEN" \
+                  -H "Content-Type: application/json" -d "{\"Name\":\"$lib_name\",\"Path\":\"$lib_path\"}" 2>/dev/null || true
+                echo "  Library path added: $lib_name ($lib_path)"
               fi
             done
 

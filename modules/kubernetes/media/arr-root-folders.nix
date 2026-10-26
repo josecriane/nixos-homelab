@@ -30,11 +30,11 @@ let
       };
     }
     {
-      app = "sonarr-es";
+      app = "sonarr";
       path = "/data/media/tv-es";
     }
     {
-      app = "radarr-es";
+      app = "radarr";
       path = "/data/media/movies-es";
     }
   ];

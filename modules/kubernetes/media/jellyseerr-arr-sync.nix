@@ -30,18 +30,14 @@ in
       "jellyseerr-setup.service"
       "jellyseerr-oidc-config-setup.service"
       "sonarr-setup.service"
-      "sonarr-es-setup.service"
       "radarr-setup.service"
-      "radarr-es-setup.service"
       "arr-secrets-setup.service"
     ];
     wants = [
       "jellyseerr-setup.service"
       "jellyseerr-oidc-config-setup.service"
       "sonarr-setup.service"
-      "sonarr-es-setup.service"
       "radarr-setup.service"
-      "radarr-es-setup.service"
       "arr-secrets-setup.service"
     ];
 
@@ -146,9 +142,7 @@ in
 
         echo "Reconciling Jellyseerr arr API keys..."
         sync_arr_key sonarr sonarr
-        sync_arr_key sonarr sonarr-es
         sync_arr_key radarr radarr
-        sync_arr_key radarr radarr-es
 
         echo "Jellyseerr arr sync complete"
       '';
