@@ -159,7 +159,7 @@ lib.recursiveUpdate release {
         # === Medicine ===
         download_latest_zim "other" "zimgit-medicine_en"
         download_latest_zim "zimit" "nhs.uk_en_medicines"
-        download_latest_zim "zimit" "fas-military-medicine_en"
+        download_latest_zim "zimit" "irp.fas.org_en_military-medicine"
         download_latest_zim "zimit" "wwwnc.cdc.gov_en_all"
         download_latest_zim "zimit" "medlineplus.gov_en_all"
         download_latest_zim "wikipedia" "wikipedia_en_medicine_maxi"
