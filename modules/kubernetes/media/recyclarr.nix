@@ -29,9 +29,17 @@ let
         type: series
       quality_profiles:
         - trash_id: 72dae194fc92bf828f32cde7744e51a1 # WEB-1080p
+          upgrade:
+            allowed: true
+            until_quality: WEB 1080p
+            until_score: 5000
           reset_unmatched_scores:
             enabled: true
         - trash_id: 20e0fc959f1f1704bed501f23bdae76f # Anime Remux-1080p
+          upgrade:
+            allowed: true
+            until_quality: WEB 1080p
+            until_score: 5000
           reset_unmatched_scores:
             enabled: true
       custom_formats:
@@ -55,9 +63,9 @@ let
             - custom-latino-only
           assign_scores_to:
             - name: WEB-1080p
-              score: -10000
+              score: -5000
             - name: "[Anime] Remux-1080p"
-              score: -10000
+              score: -5000
         - trash_ids:
             - ae575f95ab639ba5d15f663bf019e3e8 # Language: Not Original
             - 47435ece6b99a0b477caf360e79ba0bb # x265 (HD)
@@ -89,9 +97,17 @@ let
         type: movie
       quality_profiles:
         - trash_id: d1d67249d3890e49bc12e275d989a7e9 # HD Bluray + WEB
+          upgrade:
+            allowed: true
+            until_quality: WEB 1080p
+            until_score: 5000
           reset_unmatched_scores:
             enabled: true
         - trash_id: 722b624f9af1e492284c4bc842153a38 # Anime
+          upgrade:
+            allowed: true
+            until_quality: WEB 1080p
+            until_score: 5000
           reset_unmatched_scores:
             enabled: true
       custom_formats:
@@ -115,9 +131,9 @@ let
             - custom-latino-only
           assign_scores_to:
             - name: HD Bluray + WEB
-              score: -10000
+              score: -5000
             - name: "[Anime] Remux-1080p"
-              score: -10000
+              score: -5000
         - trash_ids:
             - dc98083864ea246d05a42df0d05f81cc # x265 (HD)
           assign_scores_to:
@@ -172,6 +188,13 @@ let
     fields = { inherit value; };
   };
 
+  optionalLanguageSpec =
+    name: negate: value:
+    languageSpec name negate value
+    // {
+      required = false;
+    };
+
   originalLanguage = -2;
   spanishLanguage = 3;
 
@@ -191,6 +214,8 @@ let
     (customFormat "dual-es" "Audio: Dual ES" 5000 [
       (titleSpec "Dual marker" false dualRegex)
       (titleSpec "Spanish marker" false spanishMarkerRegex)
+      (optionalLanguageSpec "Spanish not parsed" true spanishLanguage)
+      (optionalLanguageSpec "Original not parsed" true originalLanguage)
     ])
     (customFormat "dub-without-original" "Language: Dub without original" (-10000) [
       (languageSpec "Not original" true originalLanguage)
@@ -200,7 +225,7 @@ let
       (languageSpec "Spanish" false spanishLanguage)
       (languageSpec "Original" false originalLanguage)
     ])
-    (customFormat "latino-only" "Audio: Latino without Castellano" (-10000) [
+    (customFormat "latino-only" "Audio: Latino without Castellano" (-5000) [
       (titleSpec "Latino marker" false latinoRegex)
       (titleSpec "No Castellano marker" true castellanoRegex)
     ])
