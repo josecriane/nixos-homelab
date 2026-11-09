@@ -12,54 +12,48 @@
 
 let
 
-  release = k8s.createHelmRelease {
-    name = "bazarr";
+  release = {
+    after = [
+      "arr-stack-setup.service"
+      "nfs-storage-setup.service"
+    ];
     namespace = "media";
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
     valuesFile = ./values.yaml;
     waitFor = "bazarr";
-    ingress = {
-      host = "bazarr";
-      service = "bazarr";
-      port = 6767;
-    };
+    ingresses = [
+      {
+        host = "bazarr";
+        service = "bazarr";
+        port = 6767;
+      }
+    ];
     middlewares = k8s.forwardAuthMiddleware;
   };
 in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
-  lib.recursiveUpdate release {
-    dashboard.items.bazarr = {
-      group = "downloads";
-      title = "Bazarr";
-      icon = "sh-bazarr";
-      subtitle = "Subtitles";
-      url = "https://${k8s.hostname "bazarr"}";
-      workload = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+  k8s.helmReleases.bazarr = release;
+  dashboard.items.bazarr = {
+    group = "downloads";
+    title = "Bazarr";
+    icon = "sh-bazarr";
+    subtitle = "Subtitles";
+    url = "https://${k8s.hostname "bazarr"}";
+    workload = {
+      namespace = "media";
+      name = "bazarr";
+    };
+    widget = {
+      type = "bazarr";
+      url = "http://bazarr.media.svc.cluster.local:6767";
+      secrets.key = {
         namespace = "media";
-        name = "bazarr";
+        secret = "bazarr-credentials";
+        key = "API_KEY";
       };
-      widget = {
-        type = "bazarr";
-        url = "http://bazarr.media.svc.cluster.local:6767";
-        secrets.key = {
-          namespace = "media";
-          secret = "bazarr-credentials";
-          key = "API_KEY";
-        };
-      };
-      sort = 60;
     };
-    systemd.services.bazarr-setup = {
-      after = (release.systemd.services.bazarr-setup.after or [ ]) ++ [
-        "arr-stack-setup.service"
-        "nfs-storage-setup.service"
-      ];
-      wants = [
-        "arr-stack-setup.service"
-        "nfs-storage-setup.service"
-      ];
-    };
-  }
-)
+    sort = 60;
+  };
+}

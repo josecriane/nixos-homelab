@@ -19,7 +19,7 @@ let
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.nextcloud}" else null;
 
-  runtimeScript = ''
+  runtime = ''
     # Reuse existing passwords if available (avoid breaking DB on re-runs)
     NEXTCLOUD_ADMIN_PASSWORD=$(get_secret_value "${ns}" "nextcloud" "nextcloud-password")
     if [ -n "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
@@ -51,7 +51,7 @@ let
 
   '';
 
-  preScript = ''
+  preInstall = ''
     wait_for_traefik
     wait_for_certificate
 
@@ -152,7 +152,7 @@ let
     fi
   '';
 
-  extraScript = ''
+  postInstall = ''
     # Wait for pod (Nextcloud takes longer)
     sleep 30
     for i in $(seq 1 60); do
@@ -188,8 +188,7 @@ let
       "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
   '';
 
-  release = k8s.createHelmRelease {
-    name = "nextcloud";
+  release = {
     namespace = ns;
     tier = "apps";
     timeout = "15m";
@@ -208,13 +207,15 @@ let
       "externalDatabase.password=$POSTGRES_PASSWORD"
       "postgresql.auth.password=$POSTGRES_PASSWORD"
     ];
-    inherit runtimeScript preScript extraScript;
+    inherit runtime preInstall postInstall;
     manifests = [ ./manifests.yaml ];
-    ingress = {
-      host = "cloud";
-      service = "nextcloud";
-      port = 8080;
-    };
+    ingresses = [
+      {
+        host = "cloud";
+        service = "nextcloud";
+        port = 8080;
+      }
+    ];
     middlewares = [
       {
         name = "nextcloud-headers";
@@ -223,135 +224,134 @@ let
     ];
   };
 in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.nextcloud) (
-  lib.recursiveUpdate release {
-    dashboard.items.nextcloud = {
-      group = "cloud";
-      title = "Nextcloud";
-      icon = "sh-nextcloud";
-      subtitle = "Cloud Storage";
-      url = "https://${k8s.hostname "cloud"}";
-      workload = {
-        namespace = "nextcloud";
-        name = "nextcloud";
-      };
-      widget = {
-        type = "nextcloud";
-        url = "http://nextcloud.nextcloud.svc.cluster.local:8080";
-        secrets = {
-          username = {
-            namespace = "nextcloud";
-            secret = "nextcloud-local-credentials";
-            key = "NEXTCLOUD_ADMIN_USER";
-          };
-          password = {
-            namespace = "nextcloud";
-            secret = "nextcloud-local-credentials";
-            key = "NEXTCLOUD_ADMIN_PASSWORD";
-          };
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.nextcloud) {
+  k8s.helmReleases.nextcloud = release;
+  dashboard.items.nextcloud = {
+    group = "cloud";
+    title = "Nextcloud";
+    icon = "sh-nextcloud";
+    subtitle = "Cloud Storage";
+    url = "https://${k8s.hostname "cloud"}";
+    workload = {
+      namespace = "nextcloud";
+      name = "nextcloud";
+    };
+    widget = {
+      type = "nextcloud";
+      url = "http://nextcloud.nextcloud.svc.cluster.local:8080";
+      secrets = {
+        username = {
+          namespace = "nextcloud";
+          secret = "nextcloud-local-credentials";
+          key = "NEXTCLOUD_ADMIN_USER";
+        };
+        password = {
+          namespace = "nextcloud";
+          secret = "nextcloud-local-credentials";
+          key = "NEXTCLOUD_ADMIN_PASSWORD";
         };
       };
-      sort = 20;
     };
+    sort = 20;
+  };
 
-    # OIDC configuration service
-    systemd.services.nextcloud-oidc-setup = {
-      description = "Configure Nextcloud OIDC with Authentik";
-      # After media (SSO already configured)
-      after = [
-        "k3s-apps.target"
-        "nextcloud-setup.service"
-        "authentik-sso-setup.service"
-      ];
-      requires = [ "k3s-apps.target" ];
-      wants = [
-        "nextcloud-setup.service"
-        "authentik-sso-setup.service"
-      ];
-      wantedBy = [ "k3s-extras.target" ];
-      before = [ "k3s-extras.target" ];
+  # OIDC configuration service
+  systemd.services.nextcloud-oidc-setup = {
+    description = "Configure Nextcloud OIDC with Authentik";
+    # After media (SSO already configured)
+    after = [
+      "k3s-apps.target"
+      "nextcloud-setup.service"
+      "authentik-sso-setup.service"
+    ];
+    requires = [ "k3s-apps.target" ];
+    wants = [
+      "nextcloud-setup.service"
+      "authentik-sso-setup.service"
+    ];
+    wantedBy = [ "k3s-extras.target" ];
+    before = [ "k3s-extras.target" ];
 
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = pkgs.writeShellScript "nextcloud-oidc-setup" ''
-          ${k8s.libShSource}
-          setup_preamble "/var/lib/nextcloud-oidc-setup-done" "Nextcloud OIDC"
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "nextcloud-oidc-setup" ''
+        ${k8s.libShSource}
+        setup_preamble "/var/lib/nextcloud-oidc-setup-done" "Nextcloud OIDC"
 
-          # Wait for SSO credentials
-          wait_for_resource "secret" "${ns}" "authentik-sso-credentials" 300
+        # Wait for SSO credentials
+        wait_for_resource "secret" "${ns}" "authentik-sso-credentials" 300
 
-          if ! $KUBECTL get secret authentik-sso-credentials -n ${ns} &>/dev/null; then
-            echo "SSO credentials not available"
-            exit 0
+        if ! $KUBECTL get secret authentik-sso-credentials -n ${ns} &>/dev/null; then
+          echo "SSO credentials not available"
+          exit 0
+        fi
+
+        NEXTCLOUD_CLIENT_ID=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.NEXTCLOUD_CLIENT_ID}' | base64 -d)
+        NEXTCLOUD_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.NEXTCLOUD_CLIENT_SECRET}' | base64 -d)
+
+        if [ -z "$NEXTCLOUD_CLIENT_SECRET" ]; then
+          echo "No NEXTCLOUD_CLIENT_SECRET found"
+          exit 1
+        fi
+
+        # Get Nextcloud pod; may be absent if scaled to 0 by switchboard.
+        # Skip gracefully without marker so it retries on next boot or when scaled back up.
+        NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        if [ -z "$NC_POD" ]; then
+          echo "No Nextcloud pod found (scaled to 0 or not installed yet), skipping OIDC setup"
+          exit 0
+        fi
+
+        # Wait for pod ready
+        for i in $(seq 1 30); do
+          READY=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
+          if [ "$READY" = "true" ]; then break; fi
+          sleep 10
+        done
+
+        # Install user_oidc app
+        if ! $KUBECTL exec -n ${ns} $NC_POD -- php occ app:install user_oidc 2>/dev/null; then
+          OIDC_TMP=$(mktemp -d)
+          $CURL -sL -o "$OIDC_TMP/user_oidc.tar.gz" \
+            "https://github.com/nextcloud-releases/user_oidc/releases/download/v6.0.1/user_oidc-v6.0.1.tar.gz"
+          if [ -f "$OIDC_TMP/user_oidc.tar.gz" ]; then
+            ${pkgs.gzip}/bin/gzip -dc "$OIDC_TMP/user_oidc.tar.gz" | ${pkgs.gnutar}/bin/tar -xf - -C "$OIDC_TMP"
+            $KUBECTL exec -n ${ns} $NC_POD -- mkdir -p /var/www/html/custom_apps
+            $KUBECTL cp "$OIDC_TMP/user_oidc" "${ns}/$NC_POD:/var/www/html/custom_apps/user_oidc"
+            rm -rf "$OIDC_TMP"
+            $KUBECTL exec -n ${ns} $NC_POD -- php occ app:enable user_oidc 2>/dev/null || true
           fi
+        fi
 
-          NEXTCLOUD_CLIENT_ID=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.NEXTCLOUD_CLIENT_ID}' | base64 -d)
-          NEXTCLOUD_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.NEXTCLOUD_CLIENT_SECRET}' | base64 -d)
+        # Truncate secret (bug in user_oidc)
+        TRUNCATED_SECRET=$(echo "$NEXTCLOUD_CLIENT_SECRET" | head -c 64)
 
-          if [ -z "$NEXTCLOUD_CLIENT_SECRET" ]; then
-            echo "No NEXTCLOUD_CLIENT_SECRET found"
-            exit 1
-          fi
+        # Configure OIDC provider
+        $KUBECTL exec -n ${ns} $NC_POD -- \
+          php occ user_oidc:provider Authentik \
+            --clientid="$NEXTCLOUD_CLIENT_ID" \
+            --clientsecret="$TRUNCATED_SECRET" \
+            --discoveryuri="https://$(hostname auth)/application/o/nextcloud/.well-known/openid-configuration" \
+            --scope="openid email profile" \
+            --unique-uid=1 \
+            --mapping-uid="preferred_username" \
+            --mapping-display-name="name" \
+            --mapping-email="email" 2>/dev/null || true
 
-          # Get Nextcloud pod; may be absent if scaled to 0 by switchboard.
-          # Skip gracefully without marker so it retries on next boot or when scaled back up.
-          NC_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-          if [ -z "$NC_POD" ]; then
-            echo "No Nextcloud pod found (scaled to 0 or not installed yet), skipping OIDC setup"
-            exit 0
-          fi
+        # Configure settings
+        $KUBECTL exec -n ${ns} $NC_POD -- php occ config:app:set user_oidc auto_provision --value=1 2>/dev/null || true
+        $KUBECTL exec -n ${ns} $NC_POD -- php occ config:app:set user_oidc allow_multiple_user_backends --value=0 2>/dev/null || true
+        $KUBECTL exec -n ${ns} $NC_POD -- php occ config:system:set allow_local_remote_servers --value=true --type=boolean 2>/dev/null || true
 
-          # Wait for pod ready
-          for i in $(seq 1 30); do
-            READY=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=nextcloud -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
-            if [ "$READY" = "true" ]; then break; fi
-            sleep 10
-          done
+        print_success "Nextcloud OIDC" \
+          "URLs:" \
+          "  URL: https://$(hostname cloud)" \
+          "" \
+          "Login: Click 'Log in with Authentik'"
 
-          # Install user_oidc app
-          if ! $KUBECTL exec -n ${ns} $NC_POD -- php occ app:install user_oidc 2>/dev/null; then
-            OIDC_TMP=$(mktemp -d)
-            $CURL -sL -o "$OIDC_TMP/user_oidc.tar.gz" \
-              "https://github.com/nextcloud-releases/user_oidc/releases/download/v6.0.1/user_oidc-v6.0.1.tar.gz"
-            if [ -f "$OIDC_TMP/user_oidc.tar.gz" ]; then
-              ${pkgs.gzip}/bin/gzip -dc "$OIDC_TMP/user_oidc.tar.gz" | ${pkgs.gnutar}/bin/tar -xf - -C "$OIDC_TMP"
-              $KUBECTL exec -n ${ns} $NC_POD -- mkdir -p /var/www/html/custom_apps
-              $KUBECTL cp "$OIDC_TMP/user_oidc" "${ns}/$NC_POD:/var/www/html/custom_apps/user_oidc"
-              rm -rf "$OIDC_TMP"
-              $KUBECTL exec -n ${ns} $NC_POD -- php occ app:enable user_oidc 2>/dev/null || true
-            fi
-          fi
-
-          # Truncate secret (bug in user_oidc)
-          TRUNCATED_SECRET=$(echo "$NEXTCLOUD_CLIENT_SECRET" | head -c 64)
-
-          # Configure OIDC provider
-          $KUBECTL exec -n ${ns} $NC_POD -- \
-            php occ user_oidc:provider Authentik \
-              --clientid="$NEXTCLOUD_CLIENT_ID" \
-              --clientsecret="$TRUNCATED_SECRET" \
-              --discoveryuri="https://$(hostname auth)/application/o/nextcloud/.well-known/openid-configuration" \
-              --scope="openid email profile" \
-              --unique-uid=1 \
-              --mapping-uid="preferred_username" \
-              --mapping-display-name="name" \
-              --mapping-email="email" 2>/dev/null || true
-
-          # Configure settings
-          $KUBECTL exec -n ${ns} $NC_POD -- php occ config:app:set user_oidc auto_provision --value=1 2>/dev/null || true
-          $KUBECTL exec -n ${ns} $NC_POD -- php occ config:app:set user_oidc allow_multiple_user_backends --value=0 2>/dev/null || true
-          $KUBECTL exec -n ${ns} $NC_POD -- php occ config:system:set allow_local_remote_servers --value=true --type=boolean 2>/dev/null || true
-
-          print_success "Nextcloud OIDC" \
-            "URLs:" \
-            "  URL: https://$(hostname cloud)" \
-            "" \
-            "Login: Click 'Log in with Authentik'"
-
-          create_marker "/var/lib/nextcloud-oidc-setup-done"
-        '';
-      };
+        create_marker "/var/lib/nextcloud-oidc-setup-done"
+      '';
     };
-  }
-)
+  };
+}

@@ -9,7 +9,7 @@ let
   ns = "authentik";
   chartVersion = "2026.8.3";
 
-  runtimeScript = ''
+  runtime = ''
     EXISTING_SECRET=$($KUBECTL get secret authentik -n ${ns} -o jsonpath='{.data.authentik-secret-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
     EXISTING_PG_PASS=$($KUBECTL get secret authentik-postgresql -n ${ns} -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
 
@@ -21,12 +21,12 @@ let
     AUTHENTIK_ADMIN_PASSWORD=$(cat ${config.age.secrets.authentik-admin-password.path})
   '';
 
-  preScript = ''
+  preInstall = ''
     wait_for_traefik
     wait_for_certificate
   '';
 
-  extraScript = ''
+  postInstall = ''
     EXISTING_API_TOKEN=$(get_secret_value "${ns}" "authentik-api-token" "TOKEN")
     if [ -z "$EXISTING_API_TOKEN" ]; then
       echo "Creating persistent API token..."
@@ -54,8 +54,7 @@ let
       "BOOTSTRAP_TOKEN=$BOOTSTRAP_TOKEN"
   '';
 
-  release = k8s.createHelmRelease {
-    name = "authentik";
+  release = {
     namespace = ns;
     tier = "core";
     timeout = "25m";
@@ -76,42 +75,43 @@ let
       "authentik.bootstrap_token=$BOOTSTRAP_TOKEN"
       "postgresql.auth.password=$POSTGRES_PASSWORD"
     ];
-    inherit runtimeScript preScript extraScript;
+    inherit runtime preInstall postInstall;
     waitFor = "authentik-server";
-    ingress = {
-      host = "auth";
-      service = "authentik-server";
-      port = 80;
-    };
+    ingresses = [
+      {
+        host = "auth";
+        service = "authentik-server";
+        port = 80;
+      }
+    ];
   };
 in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik) (
-  lib.recursiveUpdate release {
-    dashboard.items.authentik = {
-      group = "infrastructure";
-      title = "Authentik";
-      icon = "sh-authentik";
-      subtitle = "SSO/Identity";
-      url = "https://${k8s.hostname "auth"}";
-      workload = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik) {
+  k8s.helmReleases.authentik = release;
+  dashboard.items.authentik = {
+    group = "infrastructure";
+    title = "Authentik";
+    icon = "sh-authentik";
+    subtitle = "SSO/Identity";
+    url = "https://${k8s.hostname "auth"}";
+    workload = {
+      namespace = "authentik";
+      name = "authentik-server";
+      selector = "app.kubernetes.io/name=authentik,app.kubernetes.io/component=server";
+    };
+    widget = {
+      type = "authentik";
+      url = "http://authentik-server.authentik.svc.cluster.local:80";
+      secrets.key = {
         namespace = "authentik";
-        name = "authentik-server";
-        selector = "app.kubernetes.io/name=authentik,app.kubernetes.io/component=server";
+        secret = "authentik-api-token";
+        key = "TOKEN";
       };
-      widget = {
-        type = "authentik";
-        url = "http://authentik-server.authentik.svc.cluster.local:80";
-        secrets.key = {
-          namespace = "authentik";
-          secret = "authentik-api-token";
-          key = "TOKEN";
-        };
-        options.version = 2;
-      };
-      sort = 20;
+      options.version = 2;
     };
-    age.secrets.authentik-admin-password = {
-      file = "${config.cluster.secretsPath}/authentik-admin-password.age";
-    };
-  }
-)
+    sort = 20;
+  };
+  age.secrets.authentik-admin-password = {
+    file = "${config.cluster.secretsPath}/authentik-admin-password.age";
+  };
+}

@@ -23,7 +23,7 @@ let
     };
   };
 
-  preScript = ''
+  preInstall = ''
     if [ -z "${toString cloudHostPath}" ]; then
       echo "ERROR: no cloudPaths.paperless configured on any enabled NAS"
       exit 1
@@ -85,7 +85,7 @@ let
     esac
   '';
 
-  extraScript = ''
+  postInstall = ''
     if [ "$PAPERLESS_SECRET_CHANGED" = "1" ]; then
       echo "paperless-oidc changed, restarting the deployment so it picks the new values up..."
       $KUBECTL -n ${ns} rollout restart deploy/paperless
@@ -93,8 +93,11 @@ let
     fi
   '';
 
-  release = k8s.createHelmRelease {
-    name = "paperless";
+  release = {
+    after = [
+      "authentik-sso-setup.service"
+      "nfs-storage-cloud-setup.service"
+    ];
     namespace = ns;
     tier = "extras";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -103,63 +106,54 @@ let
     waitFor = "paperless";
     timeout = "10m";
     pssLevel = "privileged";
-    inherit preScript extraScript;
-    ingress = {
-      host = "paperless";
-      service = "paperless";
-      port = 8000;
-    };
-  };
-in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.paperless) (
-  lib.recursiveUpdate release {
-    dashboard.items.paperless = {
-      group = "documents";
-      title = "Paperless";
-      icon = "sh-paperless-ngx";
-      subtitle = "Document Archive";
-      url = "https://${k8s.hostname "paperless"}";
-      workload = {
-        namespace = "extra";
-        name = "paperless";
-      };
-      widget = {
-        type = "paperlessngx";
-        url = "http://paperless.extra.svc.cluster.local:8000";
-        secrets = {
-          username = {
-            namespace = "extra";
-            secret = "paperless-oidc";
-            key = "PAPERLESS_ADMIN_USER";
-          };
-          password = {
-            namespace = "extra";
-            secret = "paperless-oidc";
-            key = "PAPERLESS_ADMIN_PASSWORD";
-          };
-        };
-      };
-      sort = 10;
-    };
-    sso.oidcApps = [
+    inherit preInstall postInstall;
+    ingresses = [
       {
-        name = "Paperless";
-        slug = "paperless";
         host = "paperless";
-        namespace = ns;
-        redirectPaths = [ "/accounts/oidc/authentik/login/callback/" ];
+        service = "paperless";
+        port = 8000;
       }
     ];
-
-    systemd.services.paperless-setup = {
-      after = release.systemd.services.paperless-setup.after ++ [
-        "authentik-sso-setup.service"
-        "nfs-storage-cloud-setup.service"
-      ];
-      wants = [
-        "authentik-sso-setup.service"
-        "nfs-storage-cloud-setup.service"
-      ];
+  };
+in
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.paperless) {
+  k8s.helmReleases.paperless = release;
+  dashboard.items.paperless = {
+    group = "documents";
+    title = "Paperless";
+    icon = "sh-paperless-ngx";
+    subtitle = "Document Archive";
+    url = "https://${k8s.hostname "paperless"}";
+    workload = {
+      namespace = "extra";
+      name = "paperless";
     };
-  }
-)
+    widget = {
+      type = "paperlessngx";
+      url = "http://paperless.extra.svc.cluster.local:8000";
+      secrets = {
+        username = {
+          namespace = "extra";
+          secret = "paperless-oidc";
+          key = "PAPERLESS_ADMIN_USER";
+        };
+        password = {
+          namespace = "extra";
+          secret = "paperless-oidc";
+          key = "PAPERLESS_ADMIN_PASSWORD";
+        };
+      };
+    };
+    sort = 10;
+  };
+  sso.oidcApps = [
+    {
+      name = "Paperless";
+      slug = "paperless";
+      host = "paperless";
+      namespace = ns;
+      redirectPaths = [ "/accounts/oidc/authentik/login/callback/" ];
+    }
+  ];
+
+}

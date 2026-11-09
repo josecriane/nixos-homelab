@@ -15,155 +15,149 @@
 let
   ns = "media";
   domain = "${config.cluster.subdomain}.${config.cluster.domain}";
-  oidcMarkerFile = "/var/lib/jellyseerr-oidc-config-done";
+  oidcMarkerFile = "/var/lib/jellyseerr-oidc-config-setup-done";
 
-  release = k8s.createHelmRelease {
-    name = "jellyseerr";
+  release = {
+    after = [
+      "nfs-storage-setup.service"
+      "jellyfin-setup.service"
+    ];
     namespace = ns;
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
     valuesFile = ./values.yaml;
     waitFor = "jellyseerr";
-    ingress = {
-      host = "requests";
-      service = "jellyseerr";
-      port = 5055;
-    };
+    ingresses = [
+      {
+        host = "requests";
+        service = "jellyseerr";
+        port = 5055;
+      }
+    ];
   };
 in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
-  lib.recursiveUpdate release {
-    dashboard.items.jellyseerr = {
-      group = "requests";
-      title = "Jellyseerr";
-      icon = "sh-jellyseerr";
-      subtitle = "Media Requests";
-      url = "https://${k8s.hostname "requests"}";
-      workload = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+  k8s.helmReleases.jellyseerr = release;
+  dashboard.items.jellyseerr = {
+    group = "requests";
+    title = "Jellyseerr";
+    icon = "sh-jellyseerr";
+    subtitle = "Media Requests";
+    url = "https://${k8s.hostname "requests"}";
+    workload = {
+      namespace = "media";
+      name = "jellyseerr";
+    };
+    widget = {
+      type = "seerr";
+      url = "http://jellyseerr.media.svc.cluster.local:5055";
+      secrets.key = {
         namespace = "media";
-        name = "jellyseerr";
+        secret = "jellyseerr-credentials";
+        key = "API_KEY";
       };
-      widget = {
-        type = "seerr";
-        url = "http://jellyseerr.media.svc.cluster.local:5055";
-        secrets.key = {
-          namespace = "media";
-          secret = "jellyseerr-credentials";
-          key = "API_KEY";
-        };
-      };
-      sort = 20;
     };
-    systemd.services.jellyseerr-setup = {
-      after = (release.systemd.services.jellyseerr-setup.after or [ ]) ++ [
-        "nfs-storage-setup.service"
-        "jellyfin-setup.service"
-      ];
-      wants = [
-        "nfs-storage-setup.service"
-        "jellyfin-setup.service"
-      ];
-    };
+    sort = 20;
+  };
 
-    systemd.services.jellyseerr-oidc-config-setup = {
-      description = "Configure Jellyseerr OIDC via ConfigMap";
-      after = [
-        "k3s-apps.target"
-        "jellyseerr-setup.service"
-        "authentik-sso-setup.service"
-        "jellyfin-integration-setup.service"
-      ];
-      requires = [ "k3s-apps.target" ];
-      wants = [
-        "jellyseerr-setup.service"
-        "authentik-sso-setup.service"
-        "jellyfin-integration-setup.service"
-      ];
-      wantedBy = [ "k3s-extras.target" ];
-      before = [ "k3s-extras.target" ];
+  systemd.services.jellyseerr-oidc-config-setup = {
+    description = "Configure Jellyseerr OIDC via ConfigMap";
+    after = [
+      "k3s-apps.target"
+      "jellyseerr-setup.service"
+      "authentik-sso-setup.service"
+      "jellyfin-integration-setup.service"
+    ];
+    requires = [ "k3s-apps.target" ];
+    wants = [
+      "jellyseerr-setup.service"
+      "authentik-sso-setup.service"
+      "jellyfin-integration-setup.service"
+    ];
+    wantedBy = [ "k3s-extras.target" ];
+    before = [ "k3s-extras.target" ];
 
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = pkgs.writeShellScript "jellyseerr-oidc-config-setup" ''
-          ${k8s.libShSource}
-          setup_preamble "${oidcMarkerFile}" "Jellyseerr OIDC"
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "jellyseerr-oidc-config-setup" ''
+        ${k8s.libShSource}
+        setup_preamble "${oidcMarkerFile}" "Jellyseerr OIDC"
 
-          wait_for_k3s
+        wait_for_k3s
 
-          if ! $KUBECTL get secret authentik-sso-credentials -n ${ns} &>/dev/null; then
-            echo "No SSO credentials found, skipping OIDC configuration"
-            touch ${oidcMarkerFile}
-            exit 0
-          fi
+        if ! $KUBECTL get secret authentik-sso-credentials -n ${ns} &>/dev/null; then
+          echo "No SSO credentials found, skipping OIDC configuration"
+          touch ${oidcMarkerFile}
+          exit 0
+        fi
 
-          JELLYSEERR_CLIENT_ID=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYSEERR_CLIENT_ID}' | base64 -d 2>/dev/null || echo "")
-          JELLYSEERR_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYSEERR_CLIENT_SECRET}' | base64 -d 2>/dev/null || echo "")
+        JELLYSEERR_CLIENT_ID=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYSEERR_CLIENT_ID}' | base64 -d 2>/dev/null || echo "")
+        JELLYSEERR_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYSEERR_CLIENT_SECRET}' | base64 -d 2>/dev/null || echo "")
 
-          if [ -z "$JELLYSEERR_CLIENT_SECRET" ]; then
-            echo "No Jellyseerr client secret in SSO credentials, skipping"
-            touch ${oidcMarkerFile}
-            exit 0
-          fi
+        if [ -z "$JELLYSEERR_CLIENT_SECRET" ]; then
+          echo "No Jellyseerr client secret in SSO credentials, skipping"
+          touch ${oidcMarkerFile}
+          exit 0
+        fi
 
-          echo "Creating jellyseerr-oidc ConfigMap..."
+        echo "Creating jellyseerr-oidc ConfigMap..."
 
-          OIDC_JSON=$(cat <<EOFJSON
-          {
-            "main": {"oidcLogin": true, "defaultPermissions": 2, "applicationUrl": "https://$(hostname requests)"},
-            "network": {"trustProxy": true},
-            "oidc": {
-              "providers": [{
-                "name": "authentik",
-                "slug": "authentik",
-                "clientId": "$JELLYSEERR_CLIENT_ID",
-                "clientSecret": "$JELLYSEERR_CLIENT_SECRET",
-                "issuerUrl": "https://auth.${domain}/application/o/jellyseerr/",
-                "newUserLogin": true
-              }]
-            }
+        OIDC_JSON=$(cat <<EOFJSON
+        {
+          "main": {"oidcLogin": true, "defaultPermissions": 2, "applicationUrl": "https://$(hostname requests)"},
+          "network": {"trustProxy": true},
+          "oidc": {
+            "providers": [{
+              "name": "authentik",
+              "slug": "authentik",
+              "clientId": "$JELLYSEERR_CLIENT_ID",
+              "clientSecret": "$JELLYSEERR_CLIENT_SECRET",
+              "issuerUrl": "https://auth.${domain}/application/o/jellyseerr/",
+              "newUserLogin": true
+            }]
           }
-          EOFJSON
-          )
+        }
+        EOFJSON
+        )
 
-          $KUBECTL create configmap jellyseerr-oidc \
-            --namespace=${ns} \
-            --from-literal=config.json="$OIDC_JSON" \
-            --dry-run=client -o yaml | $KUBECTL apply -f -
+        $KUBECTL create configmap jellyseerr-oidc \
+          --namespace=${ns} \
+          --from-literal=config.json="$OIDC_JSON" \
+          --dry-run=client -o yaml | $KUBECTL apply -f -
 
-          echo "ConfigMap jellyseerr-oidc created"
+        echo "ConfigMap jellyseerr-oidc created"
 
-          echo "Restarting Jellyseerr to apply OIDC config..."
-          $KUBECTL scale deploy -n ${ns} jellyseerr --replicas=0
-          for i in $(seq 1 30); do
-            REMAINING=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyseerr --no-headers 2>/dev/null | wc -l)
-            [ "$REMAINING" -eq 0 ] && break
-            sleep 2
-          done
+        echo "Restarting Jellyseerr to apply OIDC config..."
+        $KUBECTL scale deploy -n ${ns} jellyseerr --replicas=0
+        for i in $(seq 1 30); do
+          REMAINING=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyseerr --no-headers 2>/dev/null | wc -l)
+          [ "$REMAINING" -eq 0 ] && break
           sleep 2
+        done
+        sleep 2
 
-          $KUBECTL scale deploy -n ${ns} jellyseerr --replicas=1
-          $KUBECTL rollout status deployment/jellyseerr -n ${ns} --timeout=120s 2>/dev/null || true
+        $KUBECTL scale deploy -n ${ns} jellyseerr --replicas=1
+        $KUBECTL rollout status deployment/jellyseerr -n ${ns} --timeout=120s 2>/dev/null || true
 
-          JELLYSEERR_API_KEY=""
-          JSEERR_SETTINGS_CONTENT=$($KUBECTL exec -n ${ns} deploy/jellyseerr -- \
-            cat /app/config/settings.json 2>/dev/null || echo "")
-          if [ -n "$JSEERR_SETTINGS_CONTENT" ]; then
-            JELLYSEERR_API_KEY=$(echo "$JSEERR_SETTINGS_CONTENT" | $JQ -r '.main.apiKey // empty' 2>/dev/null)
-          fi
+        JELLYSEERR_API_KEY=""
+        JSEERR_SETTINGS_CONTENT=$($KUBECTL exec -n ${ns} deploy/jellyseerr -- \
+          cat /app/config/settings.json 2>/dev/null || echo "")
+        if [ -n "$JSEERR_SETTINGS_CONTENT" ]; then
+          JELLYSEERR_API_KEY=$(echo "$JSEERR_SETTINGS_CONTENT" | $JQ -r '.main.apiKey // empty' 2>/dev/null)
+        fi
 
-          store_credentials "${ns}" "jellyseerr-credentials" \
-            "API_KEY=$JELLYSEERR_API_KEY" "URL=https://$(hostname requests)"
+        store_credentials "${ns}" "jellyseerr-credentials" \
+          "API_KEY=$JELLYSEERR_API_KEY" "URL=https://$(hostname requests)"
 
-          print_success "Jellyseerr OIDC" \
-            "URL: https://$(hostname requests)" \
-            "" \
-            "OIDC configured via ConfigMap + init container merge"
+        print_success "Jellyseerr OIDC" \
+          "URL: https://$(hostname requests)" \
+          "" \
+          "OIDC configured via ConfigMap + init container merge"
 
-          create_marker "${oidcMarkerFile}"
-        '';
-      };
+        create_marker "${oidcMarkerFile}"
+      '';
     };
-  }
-)
+  };
+}

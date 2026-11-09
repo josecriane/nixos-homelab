@@ -15,7 +15,7 @@ let
   ssoSecretName = "authentik-sso-credentials";
   domain = "${config.cluster.subdomain}.${config.cluster.domain}";
 
-  runtimeScript = ''
+  runtime = ''
     signups="true"
     if [ -n "$(get_secret_value "${ns}" "${credSecretName}" "USER_EMAIL")" ]; then
       signups="false"
@@ -36,7 +36,7 @@ let
     fi
   '';
 
-  preScript = ''
+  preInstall = ''
     wait_for_traefik
     wait_for_certificate
 
@@ -60,8 +60,7 @@ let
     fi
   '';
 
-  release = k8s.createHelmRelease {
-    name = "vaultwarden";
+  release = {
     namespace = ns;
     tier = "core";
     timeout = "5m";
@@ -76,70 +75,71 @@ let
       TOKEN_SECRET = tokenSecretName;
     };
     runtimeSets = [ "signupsAllowed=$signups" ];
-    inherit runtimeScript preScript;
-    ingress = {
-      host = "vault";
-      service = "vaultwarden";
-      port = 80;
-    };
+    inherit runtime preInstall;
+    ingresses = [
+      {
+        host = "vault";
+        service = "vaultwarden";
+        port = 80;
+      }
+    ];
   };
 in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) (
-  lib.recursiveUpdate release {
-    dashboard.items.vaultwarden = {
-      group = "cloud";
-      title = "Vaultwarden";
-      icon = "sh-vaultwarden";
-      subtitle = "Password Manager";
-      url = "https://${k8s.hostname "vault"}";
-      workload = {
-        namespace = "vaultwarden";
-        name = "vaultwarden";
-      };
-      sort = 10;
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) {
+  k8s.helmReleases.vaultwarden = release;
+  dashboard.items.vaultwarden = {
+    group = "cloud";
+    title = "Vaultwarden";
+    icon = "sh-vaultwarden";
+    subtitle = "Password Manager";
+    url = "https://${k8s.hostname "vault"}";
+    workload = {
+      namespace = "vaultwarden";
+      name = "vaultwarden";
     };
-    systemd.services.vaultwarden-sso-setup = {
-      description = "Re-apply Vaultwarden once its SSO credentials exist";
-      after = [
-        "k3s-apps.target"
-        "vaultwarden-setup.service"
-        "vaultwarden-admin-setup.service"
-        "authentik-sso-setup.service"
-      ];
-      requires = [ "k3s-apps.target" ];
-      wants = [
-        "vaultwarden-setup.service"
-        "vaultwarden-admin-setup.service"
-        "authentik-sso-setup.service"
-      ];
-      wantedBy = [ "k3s-extras.target" ];
-      before = [ "k3s-extras.target" ];
+    sort = 10;
+  };
+  systemd.services.vaultwarden-sso-setup = {
+    description = "Re-apply Vaultwarden once its SSO credentials exist";
+    after = [
+      "k3s-apps.target"
+      "vaultwarden-setup.service"
+      "vaultwarden-admin-setup.service"
+      "authentik-sso-setup.service"
+    ];
+    requires = [ "k3s-apps.target" ];
+    wants = [
+      "vaultwarden-setup.service"
+      "vaultwarden-admin-setup.service"
+      "authentik-sso-setup.service"
+    ];
+    wantedBy = [ "k3s-extras.target" ];
+    before = [ "k3s-extras.target" ];
 
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = pkgs.writeShellScript "vaultwarden-sso-setup" ''
-          ${k8s.libShSource}
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "vaultwarden-sso-setup" ''
+        ${k8s.libShSource}
 
-          wait_for_k3s
-          wait_for_resource "secret" "${ns}" "${ssoSecretName}" 300
+        wait_for_k3s
+        wait_for_resource "secret" "${ns}" "${ssoSecretName}" 300
 
-          if [ -z "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then
-            echo "No SSO credentials found, nothing to re-apply"
-            exit 0
-          fi
+        if [ -z "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then
+          echo "No SSO credentials found, nothing to re-apply"
+          exit 0
+        fi
 
-          ENABLED=$($HELM get values vaultwarden -n ${ns} -o json 2>/dev/null | $JQ -r '.sso.enabled // false')
-          if [ "$ENABLED" = "true" ]; then
-            echo "The release already has SSO enabled, nothing to do"
-            exit 0
-          fi
+        ENABLED=$($HELM get values vaultwarden -n ${ns} -o json 2>/dev/null | $JQ -r '.sso.enabled // false')
+        if [ "$ENABLED" = "true" ]; then
+          echo "The release already has SSO enabled, nothing to do"
+          exit 0
+        fi
 
-          echo "Invalidating ${markerFile} so vaultwarden-setup re-applies with SSO"
-          rm -f "${markerFile}"
-          systemctl restart --no-block vaultwarden-setup.service
-        '';
-      };
+        echo "Invalidating ${markerFile} so vaultwarden-setup re-applies with SSO"
+        rm -f "${markerFile}"
+        systemctl restart --no-block vaultwarden-setup.service
+      '';
     };
-  }
-)
+  };
+}

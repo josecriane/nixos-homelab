@@ -17,8 +17,12 @@ let
     cluster = config.cluster;
   };
 
-  release = k8s.createHelmRelease {
-    name = "lidarr";
+  release = {
+    after = [
+      "arr-secrets-setup.service"
+      "arr-stack-setup.service"
+      "nfs-storage-setup.service"
+    ];
     namespace = "media";
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -26,48 +30,37 @@ let
     valuesFile = ./values.yaml;
     values = lib.optionalAttrs (paths.secondary != [ ]) { persistence = paths.persistence; };
     waitFor = "lidarr";
-    ingress = {
-      host = "lidarr";
-      service = "lidarr";
-      port = 8686;
-    };
+    ingresses = [
+      {
+        host = "lidarr";
+        service = "lidarr";
+        port = 8686;
+      }
+    ];
     middlewares = k8s.forwardAuthMiddleware;
   };
 in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
-  lib.recursiveUpdate release {
-    dashboard.items.lidarr = {
-      group = "downloads";
-      title = "Lidarr";
-      icon = "sh-lidarr";
-      subtitle = "Music";
-      url = "https://${k8s.hostname "lidarr"}";
-      workload = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+  k8s.helmReleases.lidarr = release;
+  dashboard.items.lidarr = {
+    group = "downloads";
+    title = "Lidarr";
+    icon = "sh-lidarr";
+    subtitle = "Music";
+    url = "https://${k8s.hostname "lidarr"}";
+    workload = {
+      namespace = "media";
+      name = "lidarr";
+    };
+    widget = {
+      type = "lidarr";
+      url = "http://lidarr.media.svc.cluster.local:8686";
+      secrets.key = {
         namespace = "media";
-        name = "lidarr";
+        secret = "lidarr-api-key";
+        key = "api-key";
       };
-      widget = {
-        type = "lidarr";
-        url = "http://lidarr.media.svc.cluster.local:8686";
-        secrets.key = {
-          namespace = "media";
-          secret = "lidarr-api-key";
-          key = "api-key";
-        };
-      };
-      sort = 50;
     };
-    systemd.services.lidarr-setup = {
-      after = (release.systemd.services.lidarr-setup.after or [ ]) ++ [
-        "arr-secrets-setup.service"
-        "arr-stack-setup.service"
-        "nfs-storage-setup.service"
-      ];
-      wants = [
-        "arr-secrets-setup.service"
-        "arr-stack-setup.service"
-        "nfs-storage-setup.service"
-      ];
-    };
-  }
-)
+    sort = 50;
+  };
+}

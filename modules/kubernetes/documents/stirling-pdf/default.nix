@@ -8,7 +8,7 @@
 let
   ns = "extra";
 
-  preScript = ''
+  preInstall = ''
     if ! $KUBECTL get pvc stirling-pdf-configs -n ${ns} >/dev/null 2>&1; then
       create_pvc "stirling-pdf-configs" "${ns}" "1Gi"
     fi
@@ -40,7 +40,7 @@ let
     esac
   '';
 
-  extraScript = ''
+  postInstall = ''
     if [ "$STIRLING_SECRET_CHANGED" = "1" ]; then
       echo "stirling-pdf-auth changed, restarting the deployment so it picks the new values up..."
       $KUBECTL -n ${ns} rollout restart deploy/stirling-pdf
@@ -48,8 +48,8 @@ let
     fi
   '';
 
-  release = k8s.createHelmRelease {
-    name = "stirling-pdf";
+  release = {
+    after = [ "authentik-sso-setup.service" ];
     namespace = ns;
     tier = "extras";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -57,41 +57,38 @@ let
     valuesFile = ./values.yaml;
     waitFor = "stirling-pdf";
     timeout = "15m";
-    inherit preScript extraScript;
-    ingress = {
-      host = "pdf";
-      service = "stirling-pdf";
-      port = 8080;
-    };
-  };
-in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.stirling-pdf) (
-  lib.recursiveUpdate release {
-    dashboard.items.stirling-pdf = {
-      group = "documents";
-      title = "Stirling PDF";
-      icon = "sh-stirling-pdf";
-      subtitle = "PDF Tools";
-      url = "https://${k8s.hostname "pdf"}";
-      workload = {
-        namespace = "extra";
-        name = "stirling-pdf";
-      };
-      sort = 20;
-    };
-    sso.oidcApps = [
+    inherit preInstall postInstall;
+    ingresses = [
       {
-        name = "Stirling PDF";
-        slug = "stirling-pdf";
         host = "pdf";
-        namespace = ns;
-        redirectPaths = [ "/login/oauth2/code/oidc" ];
+        service = "stirling-pdf";
+        port = 8080;
       }
     ];
-
-    systemd.services.stirling-pdf-setup = {
-      after = release.systemd.services.stirling-pdf-setup.after ++ [ "authentik-sso-setup.service" ];
-      wants = [ "authentik-sso-setup.service" ];
+  };
+in
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.stirling-pdf) {
+  k8s.helmReleases.stirling-pdf = release;
+  dashboard.items.stirling-pdf = {
+    group = "documents";
+    title = "Stirling PDF";
+    icon = "sh-stirling-pdf";
+    subtitle = "PDF Tools";
+    url = "https://${k8s.hostname "pdf"}";
+    workload = {
+      namespace = "extra";
+      name = "stirling-pdf";
     };
-  }
-)
+    sort = 20;
+  };
+  sso.oidcApps = [
+    {
+      name = "Stirling PDF";
+      slug = "stirling-pdf";
+      host = "pdf";
+      namespace = ns;
+      redirectPaths = [ "/login/oauth2/code/oidc" ];
+    }
+  ];
+
+}

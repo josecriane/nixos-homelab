@@ -183,7 +183,7 @@ let
     KEYS+=("--from-literal=${ref.env}=$VALUE")
   '';
 
-  preScript = ''
+  preInstall = ''
     if $HELM status homer -n homer >/dev/null 2>&1; then
       $HELM uninstall homer -n homer
     fi
@@ -222,20 +222,21 @@ let
 
   templateMount = [ { path = "/template"; } ];
 in
-lib.mkIf (config.cluster.isBootstrap && config.cluster.services.dashboard) (
-  k8s.createHelmRelease {
-    name = "homepage";
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.dashboard) {
+  k8s.helmReleases.homepage = {
     namespace = ns;
     tier = "extras";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
     waitFor = "homepage";
-    inherit preScript;
-    ingress = {
-      host = "home";
-      service = "homepage";
-      port = 3000;
-    };
+    inherit preInstall;
+    ingresses = [
+      {
+        host = "home";
+        service = "homepage";
+        port = 3000;
+      }
+    ];
     values = {
       defaultPodOptions.automountServiceAccountToken = true;
       controllers.homepage = {
@@ -323,5 +324,5 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.dashboard) (
         };
       };
     };
-  }
-)
+  };
+}
