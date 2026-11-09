@@ -34,7 +34,7 @@ let
 
   stageDir = "/run/backup-volumes";
 
-  extraPaths = config.cluster.backup.extraPaths;
+  extraPaths = config.cluster.backup.extraPaths ++ config.k8s.backup.extraPaths;
 
   backupDirIsBind =
     useNFS
@@ -464,7 +464,7 @@ lib.mkIf (config.cluster.isBootstrap) ({
 
   systemd.services.backup-setup = {
     description = "Initialize Restic backup repository";
-    after = [ "k3s-extras.target" ] ++ mountUnits;
+    after = [ "k8s-extras.target" ] ++ mountUnits;
     wants = mountUnits;
     wantedBy = [ "multi-user.target" ];
 

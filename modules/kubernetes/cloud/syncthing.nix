@@ -27,11 +27,11 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.syncthing) ({
   };
   systemd.services.syncthing-setup = {
     description = "Setup Syncthing file synchronization";
-    after = [ "k3s-core.target" ] ++ lib.optional ldapEnabled "authentik-ldap-setup.service";
-    requires = [ "k3s-core.target" ];
+    after = [ "k8s-core.target" ] ++ lib.optional ldapEnabled "authentik-ldap-setup.service";
+    requires = [ "k8s-core.target" ];
     wants = lib.optional ldapEnabled "authentik-ldap-setup.service";
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -40,7 +40,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.syncthing) ({
         ${k8s.libShSource}
         setup_preamble "${markerFile}" "Syncthing"
 
-        wait_for_k3s
+        wait_for_api
         ensure_namespace "${ns}"
 
         # PVCs — storageClassName: longhorn is declared explicitly so

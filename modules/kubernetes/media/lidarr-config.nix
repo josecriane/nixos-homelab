@@ -103,13 +103,13 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.lidarr-config-setup = {
     description = "Configure Lidarr naming, quality and custom formats";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-credentials-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [ "arr-credentials-setup.service" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -120,7 +120,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
         set +e
 
         setup_preamble "${markerFile}" "Lidarr configuration"
-        wait_for_k3s
+        wait_for_api
 
         ${arr.helpers}
 

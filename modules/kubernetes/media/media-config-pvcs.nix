@@ -48,10 +48,10 @@ in
 lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.media-config-pvcs-setup = {
     description = "Create media namespace config PVCs (default StorageClass)";
-    wantedBy = [ "k3s-storage.target" ];
-    before = [ "k3s-storage.target" ];
-    after = [ "k3s-infrastructure.target" ];
-    requires = [ "k3s-infrastructure.target" ];
+    wantedBy = [ "k8s-storage.target" ];
+    before = [ "k8s-storage.target" ];
+    after = [ "k8s-infrastructure.target" ];
+    requires = [ "k8s-infrastructure.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -60,7 +60,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
         ${k8s.libShSource}
         setup_preamble "${markerFile}" "Media Config PVCs"
 
-        wait_for_k3s
+        wait_for_api
 
         $KUBECTL get namespace ${ns} &>/dev/null || $KUBECTL create namespace ${ns}
 

@@ -16,17 +16,17 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.monitoring) ({
   systemd.services.grafana-oidc-setup = {
     description = "Configure Grafana OIDC with Authentik SSO";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "kube-prometheus-stack-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "kube-prometheus-stack-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";

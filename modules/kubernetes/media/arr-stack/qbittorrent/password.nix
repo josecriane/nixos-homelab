@@ -19,13 +19,13 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.qbittorrent-password-setup = {
     description = "Configure qBittorrent WebUI password";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "qbittorrent-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [ "qbittorrent-setup.service" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -34,7 +34,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
         ${k8s.libShSource}
         setup_preamble "${markerFile}" "qBittorrent password"
 
-        wait_for_k3s
+        wait_for_api
         wait_for_deployment "${ns}" "qbittorrent" 180
 
         QBIT_PASSWORD=$(get_secret_value "${ns}" "qbittorrent-credentials" "PASSWORD")

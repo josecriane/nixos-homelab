@@ -46,16 +46,16 @@ lib.mkIf
     systemd.services.authentik-google-source-setup = {
       description = "Add Google as an authentik login source";
       after = [
-        "k3s-core.target"
+        "k8s-core.target"
         "authentik-setup.service"
         "authentik-sso-setup.service"
       ];
-      requires = [ "k3s-core.target" ];
+      requires = [ "k8s-core.target" ];
       wants = [
         "authentik-setup.service"
         "authentik-sso-setup.service"
       ];
-      wantedBy = [ "k3s-apps.target" ];
+      wantedBy = [ "k8s-apps.target" ];
 
       serviceConfig = {
         Type = "oneshot";
@@ -65,7 +65,7 @@ lib.mkIf
 
           CONFIG_HASH="${configHash}-$(sha256sum ${secretPath} | cut -d' ' -f1)"
           setup_preamble_hash "${markerFile}" "Authentik Google source" "$CONFIG_HASH"
-          wait_for_k3s
+          wait_for_api
 
           API_TOKEN=$(get_secret_value "${ns}" "authentik-api-token" "TOKEN")
           if [ -z "$API_TOKEN" ]; then

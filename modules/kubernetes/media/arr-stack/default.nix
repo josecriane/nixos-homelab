@@ -37,8 +37,8 @@
         "radarr-setup.service"
         "qbittorrent-setup.service"
       ];
-      wantedBy = [ "k3s-apps.target" ];
-      before = [ "k3s-apps.target" ];
+      wantedBy = [ "k8s-apps.target" ];
+      before = [ "k8s-apps.target" ];
 
       serviceConfig = {
         Type = "oneshot";

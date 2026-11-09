@@ -25,16 +25,16 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) ({
   systemd.services.vaultwarden-admin-setup = {
     description = "Setup Vaultwarden admin user and organization";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "vaultwarden-setup.service"
     ];
     requires = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "vaultwarden-setup.service"
     ];
     # TIER 5: Extras
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";

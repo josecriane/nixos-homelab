@@ -22,17 +22,17 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.bazarr-config-setup = {
     description = "Configure Bazarr subtitle providers and connections";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-credentials-setup.service"
       "bazarr-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "arr-credentials-setup.service"
       "bazarr-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -48,7 +48,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
                   exit 0
                 fi
 
-                wait_for_k3s
+                wait_for_api
 
                 ${arr.readyHelper}
 

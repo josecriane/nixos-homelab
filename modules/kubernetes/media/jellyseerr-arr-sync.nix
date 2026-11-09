@@ -25,7 +25,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.jellyseerr-arr-sync = {
     description = "Reconcile Jellyseerr sonarr/radarr API keys with K8s secrets";
     after = [
-      "k3s-extras.target"
+      "k8s-extras.target"
       "jellyseerr-setup.service"
       "jellyseerr-oidc-config-setup.service"
       "sonarr-setup.service"
@@ -46,7 +46,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
         ${k8s.libShSource}
         set -e
 
-        wait_for_k3s
+        wait_for_api
 
         if ! $KUBECTL get deploy -n ${ns} jellyseerr &>/dev/null; then
           echo "jellyseerr deployment not found; skipping"

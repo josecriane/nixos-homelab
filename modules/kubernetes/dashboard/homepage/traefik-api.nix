@@ -19,8 +19,8 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.dashboard) ({
       "traefik-setup.service"
     ];
     wants = [ "traefik-setup.service" ];
-    wantedBy = [ "k3s-apps.target" ];
-    before = [ "k3s-apps.target" ];
+    wantedBy = [ "k8s-apps.target" ];
+    before = [ "k8s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -28,7 +28,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.dashboard) ({
       ExecStart = pkgs.writeShellScript "traefik-api-setup" ''
         ${k8s.libShSource}
         setup_preamble "${markerFile}" "Traefik API"
-        wait_for_k3s
+        wait_for_api
         wait_for_resource middleware "${ns}" hsts-headers 300
 
         if ! $KUBECTL -n ${ns} get secret traefik-api-credentials >/dev/null 2>&1; then

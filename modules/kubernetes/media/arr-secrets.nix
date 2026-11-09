@@ -14,15 +14,15 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-secrets-setup = {
     description = "Generate stable API keys for arr-stack services";
     after = [
-      "k3s-core.target"
+      "k8s-core.target"
       "nfs-storage-setup.service"
     ];
-    requires = [ "k3s-core.target" ];
+    requires = [ "k8s-core.target" ];
     wants = [ "nfs-storage-setup.service" ];
     # TIER 4: Media (must run BEFORE arr-stack-setup)
-    wantedBy = [ "k3s-apps.target" ];
+    wantedBy = [ "k8s-apps.target" ];
     before = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-stack-setup.service"
     ];
 
@@ -33,7 +33,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
         ${k8s.libShSource}
         setup_preamble "${markerFile}" "arr-stack secrets"
 
-        wait_for_k3s
+        wait_for_api
         ensure_namespace "${ns}"
 
         # Create a K8s Secret with a stable API key for an arr service.

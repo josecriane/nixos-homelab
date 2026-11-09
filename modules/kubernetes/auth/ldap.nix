@@ -21,17 +21,17 @@ in
       description = "Setup Authentik LDAP Outpost";
       # After core
       after = [
-        "k3s-core.target"
+        "k8s-core.target"
         "authentik-setup.service"
         "authentik-sso-setup.service"
       ];
-      requires = [ "k3s-core.target" ];
+      requires = [ "k8s-core.target" ];
       wants = [
         "authentik-setup.service"
         "authentik-sso-setup.service"
       ];
-      wantedBy = [ "k3s-extras.target" ];
-      before = [ "k3s-extras.target" ];
+      wantedBy = [ "k8s-extras.target" ];
+      before = [ "k8s-extras.target" ];
 
       serviceConfig = {
         Type = "oneshot";
@@ -40,7 +40,7 @@ in
           ${k8s.libShSource}
 
           setup_preamble "${markerFile}" "Authentik LDAP"
-          wait_for_k3s
+          wait_for_api
 
           # Wait for Authentik to be ready
           echo "Waiting for Authentik..."

@@ -83,12 +83,12 @@ lib.mkIf
       description = "Create bootstrap users in Authentik";
       after = [
         "authentik-sso-setup.service"
-        "k3s-core.target"
+        "k8s-core.target"
       ];
-      requires = [ "k3s-core.target" ];
+      requires = [ "k8s-core.target" ];
       wants = [ "authentik-sso-setup.service" ];
-      wantedBy = [ "k3s-extras.target" ];
-      before = [ "k3s-extras.target" ];
+      wantedBy = [ "k8s-extras.target" ];
+      before = [ "k8s-extras.target" ];
 
       serviceConfig = {
         Type = "oneshot";
@@ -98,7 +98,7 @@ lib.mkIf
 
           CONFIG_HASH="${configHash}"
           setup_preamble_hash "${markerFile}" "Authentik bootstrap users" "$CONFIG_HASH"
-          wait_for_k3s
+          wait_for_api
 
           API_TOKEN=$(get_secret_value "${ns}" "authentik-api-token" "TOKEN")
           if [ -z "$API_TOKEN" ]; then

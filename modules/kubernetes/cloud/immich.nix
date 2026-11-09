@@ -33,10 +33,10 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.immich) ({
   };
   systemd.services.immich-setup = {
     description = "Setup Immich photo management";
-    after = [ "k3s-core.target" ];
-    requires = [ "k3s-core.target" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    after = [ "k8s-core.target" ];
+    requires = [ "k8s-core.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -45,7 +45,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.immich) ({
         ${k8s.libShSource}
         setup_preamble "${markerFile}" "Immich"
 
-        wait_for_k3s
+        wait_for_api
         wait_for_certificate
         ensure_namespace "${ns}"
 
@@ -228,17 +228,17 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.immich) ({
   systemd.services.immich-oauth-setup = {
     description = "Configure Immich OAuth with Authentik";
     after = [
-      "k3s-core.target"
+      "k8s-core.target"
       "immich-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-core.target" ];
+    requires = [ "k8s-core.target" ];
     wants = [
       "immich-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";

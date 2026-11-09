@@ -34,7 +34,7 @@ lib.mkIf
     systemd.services.vaultwarden-sync-setup = {
       description = "Sync K8s credential secrets to Vaultwarden";
       after = extraUnits ++ [
-        "k3s-apps.target"
+        "k8s-apps.target"
         "vaultwarden-admin-setup.service"
         "vaultwarden-sso-setup.service"
         "syncthing-setup.service"
@@ -43,7 +43,7 @@ lib.mkIf
         "nextcloud-setup.service"
       ];
       requires = [
-        "k3s-apps.target"
+        "k8s-apps.target"
         "vaultwarden-admin-setup.service"
       ];
       wants = extraUnits ++ [
@@ -54,8 +54,8 @@ lib.mkIf
         "nextcloud-setup.service"
       ];
       # TIER 5: Extras
-      wantedBy = [ "k3s-extras.target" ];
-      before = [ "k3s-extras.target" ];
+      wantedBy = [ "k8s-extras.target" ];
+      before = [ "k8s-extras.target" ];
 
       serviceConfig = {
         Type = "oneshot";
@@ -64,7 +64,7 @@ lib.mkIf
           ${k8s.libShSource}
           setup_preamble "${markerFile}" "Vaultwarden Sync"
 
-          wait_for_k3s
+          wait_for_api
 
           VW_EMAIL=$(get_secret_value "vaultwarden" "vaultwarden-admin-credentials" "USER_EMAIL")
           VW_PASSWORD=$(get_secret_value "vaultwarden" "vaultwarden-admin-credentials" "USER_PASSWORD")

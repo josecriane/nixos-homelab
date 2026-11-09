@@ -77,7 +77,7 @@ let
   # Pre-label the namespace so the first helm install can create the pod.
   prepare = ''
     ${k8s.libShSource}
-    wait_for_k3s
+    wait_for_api
     $KUBECTL create namespace ${ns} --dry-run=client -o yaml | $KUBECTL apply -f -
     $KUBECTL label --overwrite namespace ${ns} \
       pod-security.kubernetes.io/enforce=privileged \
@@ -113,17 +113,17 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
   systemd.services.jellyfin-config-setup = {
     description = "Configure Jellyfin wizard, libraries, VA-API, SSO";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "jellyfin-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "jellyfin-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -132,7 +132,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
         ${k8s.libShSource}
         setup_preamble "${configMarkerFile}" "Jellyfin config"
 
-        wait_for_k3s
+        wait_for_api
         wait_for_deployment "${ns}" "jellyfin" 300
 
         pkill -f 'port-forward.*jellyfin' 2>/dev/null || true

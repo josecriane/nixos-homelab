@@ -71,7 +71,7 @@ let
 
   prepare = ''
     ${k8s.libShSource}
-    wait_for_k3s
+    wait_for_api
     ensure_namespace "${ns}"
 
     if ! $KUBECTL get pv openstreetmap-data-pv >/dev/null 2>&1; then

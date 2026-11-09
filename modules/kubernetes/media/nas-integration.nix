@@ -175,13 +175,13 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
       description = "Setup NAS integration with Traefik and Authentik";
       # After media
       after = [
-        "k3s-apps.target"
+        "k8s-apps.target"
         "authentik-sso-setup.service"
       ];
-      requires = [ "k3s-apps.target" ];
+      requires = [ "k8s-apps.target" ];
       wants = [ "authentik-sso-setup.service" ];
-      wantedBy = [ "k3s-extras.target" ];
-      before = [ "k3s-extras.target" ];
+      wantedBy = [ "k8s-extras.target" ];
+      before = [ "k8s-extras.target" ];
 
       serviceConfig = {
         Type = "oneshot";
@@ -190,7 +190,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
           ${k8s.libShSource}
           setup_preamble "${markerFile}" "NAS Integration"
 
-          wait_for_k3s
+          wait_for_api
           wait_for_traefik
           wait_for_certificate
 

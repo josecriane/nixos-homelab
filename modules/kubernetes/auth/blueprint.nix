@@ -283,16 +283,16 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik) ({
   systemd.services.authentik-blueprint-setup = {
     description = "Push the authentik blueprint and apply it";
     after = [
-      "k3s-core.target"
+      "k8s-core.target"
       "authentik-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-core.target" ];
+    requires = [ "k8s-core.target" ];
     wants = [
       "authentik-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-apps.target" ];
+    wantedBy = [ "k8s-apps.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -301,7 +301,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik) ({
         ${k8s.libShSource}
 
         setup_preamble_hash "${markerFile}" "Authentik blueprint" "${blueprintFile}"
-        wait_for_k3s
+        wait_for_api
 
         TOKEN=$(get_secret_value "${ns}" "authentik-api-token" "TOKEN")
         if [ -z "$TOKEN" ]; then

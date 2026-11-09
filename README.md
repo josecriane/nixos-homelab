@@ -194,7 +194,7 @@ Every module receives the nixos-k8s helpers as the `k8s` argument, so consumer m
     serviceConfig.ExecStart = pkgs.writeShellScript "my-service" ''
       ${k8s.libShSource}
       setup_preamble "/var/lib/my-service-done" "My Service"
-      wait_for_k3s
+      wait_for_api
       ensure_namespace "my-ns"
       create_ingress_route "my-app" "my-ns" "$(hostname my-app)" "my-app" "8080"
       create_marker "/var/lib/my-service-done"
@@ -203,7 +203,7 @@ Every module receives the nixos-k8s helpers as the `k8s` argument, so consumer m
 }
 ```
 
-See [josecriane/nixos-k8s](https://github.com/josecriane/nixos-k8s) for the underlying cluster library and the full list of bash helpers (`setup_preamble`, `wait_for_k3s`, `create_ingress_route`, `create_pvc`, `helm_repo_add`, etc.).
+See [josecriane/nixos-k8s](https://github.com/josecriane/nixos-k8s) for the underlying cluster library and the full list of bash helpers (`setup_preamble`, `wait_for_api`, `create_ingress_route`, `create_pvc`, `helm_repo_add`, etc.).
 
 ## Configuration
 

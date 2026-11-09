@@ -26,8 +26,8 @@ lib.mkIf (config.cluster.isBootstrap) (
       description = "Homelab cloud PV creation (per-NAS)";
       after = [ "nfs-storage-setup.service" ];
       requires = [ "nfs-storage-setup.service" ];
-      wantedBy = [ "k3s-storage.target" ];
-      before = [ "k3s-storage.target" ];
+      wantedBy = [ "k8s-storage.target" ];
+      before = [ "k8s-storage.target" ];
 
       serviceConfig = {
         Type = "oneshot";
@@ -36,7 +36,7 @@ lib.mkIf (config.cluster.isBootstrap) (
           ${k8s.libShSource}
 
           setup_preamble "${markerFile}" "Cloud PVs"
-          wait_for_k3s
+          wait_for_api
 
           ${lib.concatStrings (
             lib.concatMap (

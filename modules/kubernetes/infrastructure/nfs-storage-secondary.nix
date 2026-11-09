@@ -75,8 +75,8 @@ lib.mkIf (config.cluster.isBootstrap) (
       description = "Secondary NAS shared-data PVs (one mount per NAS)";
       after = [ "nfs-storage-setup.service" ];
       requires = [ "nfs-storage-setup.service" ];
-      wantedBy = [ "k3s-storage.target" ];
-      before = [ "k3s-storage.target" ];
+      wantedBy = [ "k8s-storage.target" ];
+      before = [ "k8s-storage.target" ];
 
       serviceConfig = {
         Type = "oneshot";
@@ -86,7 +86,7 @@ lib.mkIf (config.cluster.isBootstrap) (
           MOUNTPOINT="${pkgs.util-linux}/bin/mountpoint"
 
           setup_preamble "${markerFile}" "Secondary NAS PVs"
-          wait_for_k3s
+          wait_for_api
           ensure_namespace ${ns}
 
           ${lib.concatMapStringsSep "\n" createVolume paths.secondary}

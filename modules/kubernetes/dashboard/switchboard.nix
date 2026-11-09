@@ -189,15 +189,15 @@ in
         switchboard-setup = {
           description = "Setup Switchboard";
           after = [
-            "k3s-storage.target"
+            "k8s-storage.target"
             "switchboard-image-import.service"
           ];
           requires = [
-            "k3s-storage.target"
+            "k8s-storage.target"
             "switchboard-image-import.service"
           ];
-          wantedBy = [ "k3s-core.target" ];
-          before = [ "k3s-core.target" ];
+          wantedBy = [ "k8s-core.target" ];
+          before = [ "k8s-core.target" ];
 
           serviceConfig = {
             Type = "oneshot";
@@ -207,7 +207,7 @@ in
               IMAGE_HASH="${image}"
               setup_preamble_hash "${markerFile}" "Switchboard" "$IMAGE_HASH"
 
-              wait_for_k3s
+              wait_for_api
               wait_for_traefik
               wait_for_certificate
 
@@ -252,15 +252,15 @@ in
             setupServices = lib.attrNames (
               lib.filterAttrs (
                 n: svc:
-                !(builtins.elem n excluded) && builtins.any (t: lib.hasPrefix "k3s-" t) (svc.wantedBy or [ ])
+                !(builtins.elem n excluded) && builtins.any (t: lib.hasPrefix "k8s-" t) (svc.wantedBy or [ ])
               ) config.systemd.services
             );
             setupUnits = map (n: "${n}.service") setupServices;
           in
           {
             description = "Scale down disabled services";
-            after = [ "k3s-extras.target" ] ++ setupUnits;
-            requires = [ "k3s-extras.target" ];
+            after = [ "k8s-extras.target" ] ++ setupUnits;
+            requires = [ "k8s-extras.target" ];
             wantedBy = [ "multi-user.target" ];
 
             restartTriggers = [
@@ -328,7 +328,7 @@ in
     ];
 
     # Timer-driven reconciliation. service-scaledown only runs at end of boot
-    # (after k3s-extras.target + all setups), leaving a long window during a
+    # (after k8s-extras.target + all setups), leaving a long window during a
     # make deploy where helm upgrade brings paused pods back up. This timer
     # re-runs the paused-only enforcement every 30s so paused pods go back
     # to 0 within seconds of helm finishing, not after the whole deploy.

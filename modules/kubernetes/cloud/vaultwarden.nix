@@ -102,19 +102,19 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) {
   systemd.services.vaultwarden-sso-setup = {
     description = "Re-apply Vaultwarden once its SSO credentials exist";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "vaultwarden-setup.service"
       "vaultwarden-admin-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "vaultwarden-setup.service"
       "vaultwarden-admin-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -122,7 +122,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) {
       ExecStart = pkgs.writeShellScript "vaultwarden-sso-setup" ''
         ${k8s.libShSource}
 
-        wait_for_k3s
+        wait_for_api
         wait_for_resource "secret" "${ns}" "${ssoSecretName}" 300
 
         if [ -z "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then

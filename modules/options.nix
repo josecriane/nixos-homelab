@@ -141,12 +141,18 @@ in
             extraPaths = mkOption {
               type = types.listOf types.str;
               default = [ ];
-              description = "Extra host paths to back up.";
+              description = "Extra host paths to back up, set in config.nix. Modules use `k8s.backup.extraPaths`.";
             };
           };
         };
       };
     };
+  };
+
+  options.k8s.backup.extraPaths = mkOption {
+    type = types.listOf types.str;
+    default = [ ];
+    description = "Extra host paths to back up, set by modules.";
   };
 
   config.cluster.certificates.provider = lib.mkDefault "acme";

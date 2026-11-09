@@ -21,7 +21,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.syncthing) ({
   systemd.services.syncthing-folders-reconcile = {
     description = "Reconcile Syncthing folder paths under /var/syncthing/data/";
     after = [
-      "k3s-extras.target"
+      "k8s-extras.target"
       "syncthing-setup.service"
     ];
     wants = [ "syncthing-setup.service" ];
@@ -32,7 +32,7 @@ lib.mkIf (config.cluster.isBootstrap && config.cluster.services.syncthing) ({
         ${k8s.libShSource}
         set -e
 
-        wait_for_k3s
+        wait_for_api
 
         if ! $KUBECTL get deploy -n ${ns} syncthing &>/dev/null; then
           echo "syncthing deployment not found; skipping"
