@@ -184,15 +184,10 @@ Consumer repo layout:
 | `extraModules` | list | no | Consumer-specific NixOS modules |
 | `extraSpecialArgs` | attrset | no | Extra args passed to every module |
 
-`nixos-k8s` is forwarded as a `specialArg`, so consumer modules can reuse the upstream bash helpers inside systemd oneshot services:
+Every module receives the nixos-k8s helpers as the `k8s` argument, so consumer modules can reuse the upstream bash helpers inside systemd oneshot services:
 
 ```nix
-{ pkgs, serverConfig, nixos-k8s, ... }:
-let
-  k8s = import "${nixos-k8s}/modules/kubernetes/lib.nix" {
-    inherit pkgs serverConfig;
-  };
-in
+{ pkgs, k8s, ... }:
 {
   systemd.services.my-service = {
     # ...

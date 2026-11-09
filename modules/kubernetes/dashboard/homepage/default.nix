@@ -222,104 +222,106 @@ let
 
   templateMount = [ { path = "/template"; } ];
 in
-k8s.createHelmRelease {
-  name = "homepage";
-  namespace = ns;
-  tier = "extras";
-  chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
-  version = "4.6.1";
-  waitFor = "homepage";
-  inherit preScript;
-  ingress = {
-    host = "home";
-    service = "homepage";
-    port = 3000;
-  };
-  values = {
-    defaultPodOptions.automountServiceAccountToken = true;
-    controllers.homepage = {
-      strategy = "Recreate";
-      serviceAccount.name = "homepage";
-      initContainers.config = {
-        image = toolsImage;
-        command = [
-          "bash"
-          generate
-        ];
-      };
-      containers = {
-        main = {
-          image = homepageImage;
-          env = {
-            HOMEPAGE_ALLOWED_HOSTS = host;
-          };
-          envFrom = [ { secretRef.name = "homepage-keys"; } ];
-          probes = {
-            startup = probe // {
-              spec = probe.spec // {
-                failureThreshold = 30;
-                periodSeconds = 5;
-              };
-            };
-            readiness = probe;
-            liveness = probe;
-          };
-          resources = {
-            requests = {
-              cpu = "50m";
-              memory = "192Mi";
-            };
-            limits.memory = "512Mi";
-          };
-        };
-        refresh = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.dashboard) (
+  k8s.createHelmRelease {
+    name = "homepage";
+    namespace = ns;
+    tier = "extras";
+    chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
+    version = "4.6.1";
+    waitFor = "homepage";
+    inherit preScript;
+    ingress = {
+      host = "home";
+      service = "homepage";
+      port = 3000;
+    };
+    values = {
+      defaultPodOptions.automountServiceAccountToken = true;
+      controllers.homepage = {
+        strategy = "Recreate";
+        serviceAccount.name = "homepage";
+        initContainers.config = {
           image = toolsImage;
           command = [
             "bash"
-            "-c"
-            "while true; do sleep 60; bash ${generate}; done"
+            generate
           ];
-          resources = {
-            requests = {
-              cpu = "10m";
-              memory = "32Mi";
+        };
+        containers = {
+          main = {
+            image = homepageImage;
+            env = {
+              HOMEPAGE_ALLOWED_HOSTS = host;
             };
-            limits.memory = "128Mi";
+            envFrom = [ { secretRef.name = "homepage-keys"; } ];
+            probes = {
+              startup = probe // {
+                spec = probe.spec // {
+                  failureThreshold = 30;
+                  periodSeconds = 5;
+                };
+              };
+              readiness = probe;
+              liveness = probe;
+            };
+            resources = {
+              requests = {
+                cpu = "50m";
+                memory = "192Mi";
+              };
+              limits.memory = "512Mi";
+            };
+          };
+          refresh = {
+            image = toolsImage;
+            command = [
+              "bash"
+              "-c"
+              "while true; do sleep 60; bash ${generate}; done"
+            ];
+            resources = {
+              requests = {
+                cpu = "10m";
+                memory = "32Mi";
+              };
+              limits.memory = "128Mi";
+            };
+          };
+        };
+      };
+      service.homepage = {
+        controller = "homepage";
+        ports.http = {
+          port = 3000;
+          targetPort = 3000;
+        };
+      };
+      configMaps.config = {
+        enabled = true;
+        data = {
+          "template.json" = builtins.toJSON template;
+          "generate.sh" = builtins.readFile ./generate.sh;
+          "settings.yaml" = settingsJson;
+          "kubernetes.yaml" = builtins.toJSON kubernetes;
+          "widgets.yaml" = builtins.toJSON infoWidgets;
+          "bookmarks.yaml" = "[]";
+        };
+      };
+      persistence = {
+        config = {
+          type = "emptyDir";
+          globalMounts = [ { path = "/app/config"; } ];
+        };
+        template = {
+          type = "configMap";
+          name = "homepage";
+          advancedMounts.homepage = {
+            config = templateMount;
+            refresh = templateMount;
           };
         };
       };
     };
-    service.homepage = {
-      controller = "homepage";
-      ports.http = {
-        port = 3000;
-        targetPort = 3000;
-      };
-    };
-    configMaps.config = {
-      enabled = true;
-      data = {
-        "template.json" = builtins.toJSON template;
-        "generate.sh" = builtins.readFile ./generate.sh;
-        "settings.yaml" = settingsJson;
-        "kubernetes.yaml" = builtins.toJSON kubernetes;
-        "widgets.yaml" = builtins.toJSON infoWidgets;
-        "bookmarks.yaml" = "[]";
-      };
-    };
-    persistence = {
-      config = {
-        type = "emptyDir";
-        globalMounts = [ { path = "/app/config"; } ];
-      };
-      template = {
-        type = "configMap";
-        name = "homepage";
-        advancedMounts.homepage = {
-          config = templateMount;
-          refresh = templateMount;
-        };
-      };
-    };
-  };
-}
+  }
+)

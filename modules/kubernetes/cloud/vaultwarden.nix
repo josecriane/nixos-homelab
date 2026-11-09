@@ -1,8 +1,8 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -13,7 +13,7 @@ let
   credSecretName = "vaultwarden-admin-credentials";
   tokenSecretName = "vaultwarden-admin-token";
   ssoSecretName = "authentik-sso-credentials";
-  domain = "${serverConfig.subdomain}.${serverConfig.domain}";
+  domain = "${config.cluster.subdomain}.${config.cluster.domain}";
 
   runtimeScript = ''
     signups="true"
@@ -84,60 +84,62 @@ let
     };
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.vaultwarden = {
-    group = "cloud";
-    title = "Vaultwarden";
-    icon = "sh-vaultwarden";
-    subtitle = "Password Manager";
-    url = "https://${k8s.hostname "vault"}";
-    workload = {
-      namespace = "vaultwarden";
-      name = "vaultwarden";
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) (
+  lib.recursiveUpdate release {
+    dashboard.items.vaultwarden = {
+      group = "cloud";
+      title = "Vaultwarden";
+      icon = "sh-vaultwarden";
+      subtitle = "Password Manager";
+      url = "https://${k8s.hostname "vault"}";
+      workload = {
+        namespace = "vaultwarden";
+        name = "vaultwarden";
+      };
+      sort = 10;
     };
-    sort = 10;
-  };
-  systemd.services.vaultwarden-sso-setup = {
-    description = "Re-apply Vaultwarden once its SSO credentials exist";
-    after = [
-      "k3s-apps.target"
-      "vaultwarden-setup.service"
-      "vaultwarden-admin-setup.service"
-      "authentik-sso-setup.service"
-    ];
-    requires = [ "k3s-apps.target" ];
-    wants = [
-      "vaultwarden-setup.service"
-      "vaultwarden-admin-setup.service"
-      "authentik-sso-setup.service"
-    ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    systemd.services.vaultwarden-sso-setup = {
+      description = "Re-apply Vaultwarden once its SSO credentials exist";
+      after = [
+        "k3s-apps.target"
+        "vaultwarden-setup.service"
+        "vaultwarden-admin-setup.service"
+        "authentik-sso-setup.service"
+      ];
+      requires = [ "k3s-apps.target" ];
+      wants = [
+        "vaultwarden-setup.service"
+        "vaultwarden-admin-setup.service"
+        "authentik-sso-setup.service"
+      ];
+      wantedBy = [ "k3s-extras.target" ];
+      before = [ "k3s-extras.target" ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "vaultwarden-sso-setup" ''
-        ${k8s.libShSource}
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "vaultwarden-sso-setup" ''
+          ${k8s.libShSource}
 
-        wait_for_k3s
-        wait_for_resource "secret" "${ns}" "${ssoSecretName}" 300
+          wait_for_k3s
+          wait_for_resource "secret" "${ns}" "${ssoSecretName}" 300
 
-        if [ -z "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then
-          echo "No SSO credentials found, nothing to re-apply"
-          exit 0
-        fi
+          if [ -z "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then
+            echo "No SSO credentials found, nothing to re-apply"
+            exit 0
+          fi
 
-        ENABLED=$($HELM get values vaultwarden -n ${ns} -o json 2>/dev/null | $JQ -r '.sso.enabled // false')
-        if [ "$ENABLED" = "true" ]; then
-          echo "The release already has SSO enabled, nothing to do"
-          exit 0
-        fi
+          ENABLED=$($HELM get values vaultwarden -n ${ns} -o json 2>/dev/null | $JQ -r '.sso.enabled // false')
+          if [ "$ENABLED" = "true" ]; then
+            echo "The release already has SSO enabled, nothing to do"
+            exit 0
+          fi
 
-        echo "Invalidating ${markerFile} so vaultwarden-setup re-applies with SSO"
-        rm -f "${markerFile}"
-        systemctl restart --no-block vaultwarden-setup.service
-      '';
+          echo "Invalidating ${markerFile} so vaultwarden-setup re-applies with SSO"
+          rm -f "${markerFile}"
+          systemctl restart --no-block vaultwarden-setup.service
+        '';
+      };
     };
-  };
-}
+  }
+)

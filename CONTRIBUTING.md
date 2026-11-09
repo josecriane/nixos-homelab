@@ -32,10 +32,11 @@ shellcheck scripts/*.sh
 ### Adding a New Service
 
 1. Create `modules/kubernetes/<category>/<service>.nix`
-2. Add the import to `modules/kubernetes/default.nix` under the appropriate `lib.optionals` block
-3. Add a `services.<name>` toggle to `config.example.nix` if it should be user-selectable
-4. Use the `k8s.setupPreamble`, `k8s.createMarker` pattern for idempotency
-5. Assign to the correct systemd tier (infrastructure, storage, core, media, extras)
+2. Add the module to the `imports` list in `modules/kubernetes/<category>/default.nix`
+3. Wrap the module body in `lib.mkIf (config.cluster.isBootstrap && config.cluster.services.<name>)`
+4. Declare the `services.<name>` toggle in `modules/options.nix` and add it to `config.example.nix`
+5. Use the `k8s.setupPreamble`, `k8s.createMarker` pattern for idempotency
+6. Assign to the correct systemd tier (infrastructure, storage, core, media, extras)
 
 ### Commit Messages
 

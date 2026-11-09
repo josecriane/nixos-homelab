@@ -3,7 +3,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -12,7 +11,7 @@ let
   markerFile = "/var/lib/nas-integration-setup-done";
 
   # Detect old single-NAS config vs new multi-NAS config
-  rawNasConfig = config.homelab.nas;
+  rawNasConfig = config.cluster.nas;
 
   # Check if it's old format (has 'ip' directly) or new format (attribute set of NAS)
   isOldFormat = rawNasConfig ? ip;
@@ -32,7 +31,7 @@ let
       rawNasConfig;
 
   # Filter only enabled NAS
-  enabledNAS = lib.filterAttrs (name: cfg: cfg.enabled or false) nasConfig;
+  enabledNAS = lib.filterAttrs (name: cfg: cfg.enabled) nasConfig;
 
   # Check if any NAS is enabled
   anyNasEnabled = (builtins.length (builtins.attrNames enabledNAS)) > 0;
@@ -70,14 +69,12 @@ let
     echo "Creating IngressRoutes for ${nasName}..."
 
     # Cockpit IngressRoute
-    create_ingress_route "${nasName}-cockpit" "${ns}" "$(hostname ${nasCfg.hostname or nasName})" "${nasName}-cockpit" "${
+    create_ingress_route "${nasName}-cockpit" "${ns}" "$(hostname ${nasCfg.hostname})" "${nasName}-cockpit" "${
       toString (nasCfg.cockpitPort or 9090)
     }" "forward-auth:traefik-system"
 
     # FileBrowser IngressRoute
-    create_ingress_route "${nasName}-filebrowser" "${ns}" "$(hostname files${
-      lib.removePrefix "nas" (nasCfg.hostname or nasName)
-    })" "${nasName}-filebrowser" "${
+    create_ingress_route "${nasName}-filebrowser" "${ns}" "$(hostname files${lib.removePrefix "nas" (nasCfg.hostname)})" "${nasName}-filebrowser" "${
       toString (nasCfg.fileBrowserPort or 8080)
     }" "forward-auth:traefik-system"
   '';
@@ -90,11 +87,11 @@ let
     lib.mapAttrsToList (nasName: nasCfg: [
       {
         name = "${nasName} Cockpit";
-        url = "https://${k8s.hostname (nasCfg.hostname or nasName)}";
+        url = "https://${k8s.hostname (nasCfg.hostname)}";
       }
       {
         name = "${nasName} Files";
-        url = "https://${k8s.hostname "files${lib.removePrefix "nas" (nasCfg.hostname or nasName)}"}";
+        url = "https://${k8s.hostname "files${lib.removePrefix "nas" (nasCfg.hostname)}"}";
       }
     ]) enabledNAS
   );
@@ -120,7 +117,7 @@ let
         let
           nasCfg = enabledNAS.${nasName};
           base = (i + 1) * 10;
-          filesHost = "files${lib.removePrefix "nas" (nasCfg.hostname or nasName)}";
+          filesHost = "files${lib.removePrefix "nas" (nasCfg.hostname)}";
         in
         [
           {
@@ -130,7 +127,7 @@ let
               title = "${nasName} Cockpit";
               icon = "mdi-server";
               subtitle = nasCfg.description or "NAS";
-              url = "https://${k8s.hostname (nasCfg.hostname or nasName)}";
+              url = "https://${k8s.hostname (nasCfg.hostname)}";
               monitor = "http://${nasCfg.ip}:${toString (nasCfg.cockpitPort or 9090)}";
               sort = base;
             };
@@ -153,71 +150,73 @@ let
   );
 
 in
-lib.mkIf anyNasEnabled {
-  dashboard.items = dashboardItems;
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
+  lib.mkIf anyNasEnabled {
+    dashboard.items = dashboardItems;
 
-  # Show migration warning if old format is detected
-  warnings = lib.optional isOldFormat ''
-    WARNING: Old NAS configuration format detected in config.nix
-    The single 'nas' configuration has been automatically migrated to 'nas.nas1'
-    Please update your config.nix to use the new multi-NAS format:
+    # Show migration warning if old format is detected
+    warnings = lib.optional isOldFormat ''
+      WARNING: Old NAS configuration format detected in config.nix
+      The single 'nas' configuration has been automatically migrated to 'nas.nas1'
+      Please update your config.nix to use the new multi-NAS format:
 
-    nas = {
-      nas1 = {
-        enabled = true;
-        ip = "192.168.1.100";
-        hostname = "nas1";
-        cockpitPort = 9090;
-        fileBrowserPort = 8080;
-        description = "Primary NAS";
+      nas = {
+        nas1 = {
+          enabled = true;
+          ip = "192.168.1.100";
+          hostname = "nas1";
+          cockpitPort = 9090;
+          fileBrowserPort = 8080;
+          description = "Primary NAS";
+        };
+      };
+    '';
+    systemd.services.nas-integration-setup = {
+      description = "Setup NAS integration with Traefik and Authentik";
+      # After media
+      after = [
+        "k3s-apps.target"
+        "authentik-sso-setup.service"
+      ];
+      requires = [ "k3s-apps.target" ];
+      wants = [ "authentik-sso-setup.service" ];
+      wantedBy = [ "k3s-extras.target" ];
+      before = [ "k3s-extras.target" ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "nas-integration-setup" ''
+          ${k8s.libShSource}
+          setup_preamble "${markerFile}" "NAS Integration"
+
+          wait_for_k3s
+          wait_for_traefik
+          wait_for_certificate
+
+          # Setup namespace
+          ensure_namespace "${ns}"
+
+          # ============================================
+          # MULTI-NAS CONFIGURATION
+          # ============================================
+
+          ${allNASResources}
+
+          echo ""
+          echo "========================================="
+          echo "NAS Integration installed successfully"
+          echo ""
+          echo "URLs:"
+          ${lib.concatMapStringsSep "\n" (u: ''echo "  ${u.name}: ${u.url}"'') successUrls}
+          echo ""
+          ${lib.concatMapStringsSep "\n" (n: ''echo "${n}"'') successNotes}
+          echo "========================================="
+          echo ""
+
+          create_marker "${markerFile}"
+        '';
       };
     };
-  '';
-  systemd.services.nas-integration-setup = {
-    description = "Setup NAS integration with Traefik and Authentik";
-    # After media
-    after = [
-      "k3s-apps.target"
-      "authentik-sso-setup.service"
-    ];
-    requires = [ "k3s-apps.target" ];
-    wants = [ "authentik-sso-setup.service" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
-
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "nas-integration-setup" ''
-        ${k8s.libShSource}
-        setup_preamble "${markerFile}" "NAS Integration"
-
-        wait_for_k3s
-        wait_for_traefik
-        wait_for_certificate
-
-        # Setup namespace
-        ensure_namespace "${ns}"
-
-        # ============================================
-        # MULTI-NAS CONFIGURATION
-        # ============================================
-
-        ${allNASResources}
-
-        echo ""
-        echo "========================================="
-        echo "NAS Integration installed successfully"
-        echo ""
-        echo "URLs:"
-        ${lib.concatMapStringsSep "\n" (u: ''echo "  ${u.name}: ${u.url}"'') successUrls}
-        echo ""
-        ${lib.concatMapStringsSep "\n" (n: ''echo "${n}"'') successNotes}
-        echo "========================================="
-        echo ""
-
-        create_marker "${markerFile}"
-      '';
-    };
-  };
-}
+  }
+)

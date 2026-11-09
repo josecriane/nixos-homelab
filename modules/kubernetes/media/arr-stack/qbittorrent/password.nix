@@ -4,9 +4,10 @@
 # one from a K8s secret (generating it if missing), and configures the save
 # path under /data/torrents.
 {
+  config,
+  lib,
   k8s,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -14,7 +15,7 @@ let
   ns = "media";
   markerFile = "/var/lib/qbittorrent-password-setup-done";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.qbittorrent-password-setup = {
     description = "Configure qBittorrent WebUI password";
     after = [
@@ -82,4 +83,4 @@ in
       '';
     };
   };
-}
+})

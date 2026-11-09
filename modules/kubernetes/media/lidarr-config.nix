@@ -1,4 +1,5 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
@@ -98,7 +99,7 @@ let
     }
   ];
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.lidarr-config-setup = {
     description = "Configure Lidarr naming, quality and custom formats";
     after = [
@@ -165,4 +166,4 @@ in
       '';
     };
   };
-}
+})

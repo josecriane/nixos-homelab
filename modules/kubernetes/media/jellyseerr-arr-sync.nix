@@ -15,14 +15,13 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "media";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.jellyseerr-arr-sync = {
     description = "Reconcile Jellyseerr sonarr/radarr API keys with K8s secrets";
     after = [
@@ -158,4 +157,4 @@ in
       Unit = "jellyseerr-arr-sync.service";
     };
   };
-}
+})

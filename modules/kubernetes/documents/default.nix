@@ -1,34 +1,23 @@
-{
-  lib,
-  serverConfig,
-  nodeConfig,
-  ...
-}:
+{ config, lib, ... }:
 
 let
-  svc = serverConfig.services or { };
-  enabled = name: svc.${name} or false;
-  isBootstrap = nodeConfig.bootstrap or false;
-  onBootstrap = name: isBootstrap && (enabled name);
+  svc = config.cluster.services;
 
-  needsAuthentik = lib.filter enabled [
+  needsAuthentik = lib.filter (name: svc.${name}) [
     "paperless"
     "stirling-pdf"
   ];
 in
 {
-  imports =
-    lib.optionals (onBootstrap "paperless") [
-      ./paperless
-      ./paperless/backup.nix
-    ]
-    ++ lib.optionals (onBootstrap "stirling-pdf") [
-      ./stirling-pdf
-    ];
+  imports = [
+    ./paperless
+    ./paperless/backup.nix
+    ./stirling-pdf
+  ];
 
   assertions = [
     {
-      assertion = needsAuthentik == [ ] || (enabled "authentik");
+      assertion = needsAuthentik == [ ] || svc.authentik;
       message =
         "services.authentik must be true when ${lib.concatStringsSep ", " needsAuthentik} is enabled: "
         + "these apps authenticate through its OIDC provider.";

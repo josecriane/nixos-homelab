@@ -5,8 +5,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  secretsPath,
   ...
 }:
 
@@ -22,10 +20,10 @@ let
   umount = "${pkgs.util-linux}/bin/umount";
   timeout = "${pkgs.coreutils}/bin/timeout";
 
-  useNFS = serverConfig.storage.useNFS;
+  useNFS = config.cluster.storage.useNFS;
 
   nasMountPoint = "/mnt/nas1";
-  backupDir = if useNFS then "${nasMountPoint}/backups" else config.homelab.backup.localPath;
+  backupDir = if useNFS then "${nasMountPoint}/backups" else config.cluster.backup.localPath;
 
   # Backup paths
   resticRepo = "${backupDir}/restic-repo";
@@ -36,12 +34,12 @@ let
 
   stageDir = "/run/backup-volumes";
 
-  extraPaths = config.homelab.backup.extraPaths;
+  extraPaths = config.cluster.backup.extraPaths;
 
   backupDirIsBind =
     useNFS
-    && lib.any (cfg: (cfg.enabled or false) && lib.elem "backups" (cfg.mediaPaths or [ ])) (
-      lib.attrValues config.homelab.nas
+    && lib.any (cfg: cfg.enabled && lib.elem "backups" cfg.mediaPaths) (
+      lib.attrValues config.cluster.nas
     );
 
   mountUnits = lib.optionals useNFS (
@@ -320,7 +318,7 @@ let
   '';
 
 in
-{
+lib.mkIf (config.cluster.isBootstrap) ({
   # Helper scripts available system-wide
   environment.systemPackages = [
     (pkgs.writeShellScriptBin "backup-status" ''
@@ -461,7 +459,7 @@ in
   ];
 
   age.secrets.restic-password = {
-    file = "${secretsPath}/restic-password.age";
+    file = "${config.cluster.secretsPath}/restic-password.age";
   };
 
   systemd.services.backup-setup = {
@@ -823,4 +821,4 @@ in
       Persistent = true;
     };
   };
-}
+})

@@ -4,15 +4,18 @@
 # secret (created by arr-secrets-setup.service). Ingress uses Authentik
 # ForwardAuth middleware + Lidarr's own local auth.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
-  paths = import ../../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
 
   release = k8s.createHelmRelease {
     name = "lidarr";
@@ -31,38 +34,40 @@ let
     middlewares = k8s.forwardAuthMiddleware;
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.lidarr = {
-    group = "downloads";
-    title = "Lidarr";
-    icon = "sh-lidarr";
-    subtitle = "Music";
-    url = "https://${k8s.hostname "lidarr"}";
-    workload = {
-      namespace = "media";
-      name = "lidarr";
-    };
-    widget = {
-      type = "lidarr";
-      url = "http://lidarr.media.svc.cluster.local:8686";
-      secrets.key = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
+  lib.recursiveUpdate release {
+    dashboard.items.lidarr = {
+      group = "downloads";
+      title = "Lidarr";
+      icon = "sh-lidarr";
+      subtitle = "Music";
+      url = "https://${k8s.hostname "lidarr"}";
+      workload = {
         namespace = "media";
-        secret = "lidarr-api-key";
-        key = "api-key";
+        name = "lidarr";
       };
+      widget = {
+        type = "lidarr";
+        url = "http://lidarr.media.svc.cluster.local:8686";
+        secrets.key = {
+          namespace = "media";
+          secret = "lidarr-api-key";
+          key = "api-key";
+        };
+      };
+      sort = 50;
     };
-    sort = 50;
-  };
-  systemd.services.lidarr-setup = {
-    after = (release.systemd.services.lidarr-setup.after or [ ]) ++ [
-      "arr-secrets-setup.service"
-      "arr-stack-setup.service"
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "arr-secrets-setup.service"
-      "arr-stack-setup.service"
-      "nfs-storage-setup.service"
-    ];
-  };
-}
+    systemd.services.lidarr-setup = {
+      after = (release.systemd.services.lidarr-setup.after or [ ]) ++ [
+        "arr-secrets-setup.service"
+        "arr-stack-setup.service"
+        "nfs-storage-setup.service"
+      ];
+      wants = [
+        "arr-secrets-setup.service"
+        "arr-stack-setup.service"
+        "nfs-storage-setup.service"
+      ];
+    };
+  }
+)

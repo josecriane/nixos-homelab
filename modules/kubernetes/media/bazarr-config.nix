@@ -3,8 +3,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  secretsPath,
   ...
 }:
 
@@ -13,12 +11,12 @@ let
   ns = "media";
   markerFile = "/var/lib/bazarr-config-setup-done";
   curl = "curl";
-  opensubtitlesUsername = config.homelab.opensubtitles.username;
+  opensubtitlesUsername = config.cluster.opensubtitles.username;
   migratorPodYaml = ./_migrator-pod.yaml;
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   age.secrets.opensubtitles-password = lib.mkIf (opensubtitlesUsername != "") {
-    file = "${secretsPath}/opensubtitles-password.age";
+    file = "${config.cluster.secretsPath}/opensubtitles-password.age";
   };
 
   systemd.services.bazarr-config-setup = {
@@ -273,4 +271,4 @@ in
       '';
     };
   };
-}
+})

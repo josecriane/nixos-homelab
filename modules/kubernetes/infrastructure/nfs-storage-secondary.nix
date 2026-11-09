@@ -1,15 +1,18 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   markerFile = "/var/lib/nfs-storage-secondary-setup-done";
   ns = "media";
-  paths = import ../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
 
   createVolume =
     cfg:
@@ -66,34 +69,36 @@ let
       fi
     '';
 in
-lib.mkIf (paths.secondary != [ ]) {
-  systemd.services.nfs-storage-secondary-setup = {
-    description = "Secondary NAS shared-data PVs (one mount per NAS)";
-    after = [ "nfs-storage-setup.service" ];
-    requires = [ "nfs-storage-setup.service" ];
-    wantedBy = [ "k3s-storage.target" ];
-    before = [ "k3s-storage.target" ];
+lib.mkIf (config.cluster.isBootstrap) (
+  lib.mkIf (paths.secondary != [ ]) {
+    systemd.services.nfs-storage-secondary-setup = {
+      description = "Secondary NAS shared-data PVs (one mount per NAS)";
+      after = [ "nfs-storage-setup.service" ];
+      requires = [ "nfs-storage-setup.service" ];
+      wantedBy = [ "k3s-storage.target" ];
+      before = [ "k3s-storage.target" ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "nfs-storage-secondary-setup" ''
-        ${k8s.libShSource}
-        MOUNTPOINT="${pkgs.util-linux}/bin/mountpoint"
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "nfs-storage-secondary-setup" ''
+          ${k8s.libShSource}
+          MOUNTPOINT="${pkgs.util-linux}/bin/mountpoint"
 
-        setup_preamble "${markerFile}" "Secondary NAS PVs"
-        wait_for_k3s
-        ensure_namespace ${ns}
+          setup_preamble "${markerFile}" "Secondary NAS PVs"
+          wait_for_k3s
+          ensure_namespace ${ns}
 
-        ${lib.concatMapStringsSep "\n" createVolume paths.secondary}
+          ${lib.concatMapStringsSep "\n" createVolume paths.secondary}
 
-        print_success "Secondary NAS PVs" \
-          ${lib.concatMapStringsSep " \\\n          " (
-            cfg: ''"${paths.claimName cfg}: ${k8s.nasMountPointOf cfg} -> ${paths.mountPoint cfg}"''
-          ) paths.secondary}
+          print_success "Secondary NAS PVs" \
+            ${lib.concatMapStringsSep " \\\n          " (
+              cfg: ''"${paths.claimName cfg}: ${k8s.nasMountPointOf cfg} -> ${paths.mountPoint cfg}"''
+            ) paths.secondary}
 
-        create_marker "${markerFile}"
-      '';
+          create_marker "${markerFile}"
+        '';
+      };
     };
-  };
-}
+  }
+)

@@ -3,16 +3,15 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "syncthing";
   markerFile = "/var/lib/syncthing-setup-done";
-  ldapEnabled = config.homelab.authentik.ldap.enable;
+  ldapEnabled = config.cluster.authentik.ldap.enable;
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.syncthing) ({
   dashboard.items.syncthing = {
     group = "cloud";
     title = "Syncthing";
@@ -129,10 +128,10 @@ in
                     curl -s -X PATCH "http://localhost:8384/rest/config/gui" \
                     -H "X-API-Key: $SYNC_API_KEY" \
                     -H "Content-Type: application/json" \
-                    -d "{\"user\": \"${serverConfig.adminUser}\", \"password\": \"$SYNC_PASS\"}" >/dev/null 2>&1
+                    -d "{\"user\": \"${config.cluster.adminUser}\", \"password\": \"$SYNC_PASS\"}" >/dev/null 2>&1
 
                   store_credentials "${ns}" "syncthing-credentials" \
-                    "USER=${serverConfig.adminUser}" "PASSWORD=$SYNC_PASS" \
+                    "USER=${config.cluster.adminUser}" "PASSWORD=$SYNC_PASS" \
                     "API_KEY=$SYNC_API_KEY" "URL=https://$(hostname sync)"
                   echo "Syncthing: GUI authentication configured"
                 else
@@ -149,4 +148,4 @@ in
       '';
     };
   };
-}
+})

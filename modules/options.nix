@@ -1,13 +1,6 @@
-{
-  config,
-  lib,
-  serverConfig,
-  ...
-}:
+{ lib, ... }:
 let
   inherit (lib) mkOption types;
-
-  defaults = import ./homelab-defaults.nix;
 
   freeform =
     options:
@@ -17,144 +10,144 @@ let
     };
 
   bool =
-    default:
+    default: description:
     mkOption {
-      inherit default;
+      inherit default description;
       type = types.bool;
+    };
+
+  str =
+    default: description:
+    mkOption {
+      inherit default description;
+      type = types.str;
     };
 in
 {
-  options.homelab = mkOption {
-    description = "Homelab-specific configuration layered on top of nixos-k8s.";
-    type = freeform {
-      services = mkOption {
-        default = { };
-        type = freeform {
-          authentik = bool defaults.services.authentik;
-          vaultwarden = bool defaults.services.vaultwarden;
-          nextcloud = bool defaults.services.nextcloud;
-          media = bool defaults.services.media;
-          immich = bool defaults.services.immich;
-          syncthing = bool defaults.services.syncthing;
-          dashboard = bool defaults.services.dashboard;
-          kiwix = bool defaults.services.kiwix;
-          openstreetmap = bool defaults.services.openstreetmap;
-          switchboard = bool defaults.services.switchboard;
-          paperless = bool defaults.services.paperless;
-          stirling-pdf = bool defaults.services.stirling-pdf;
+  options.cluster = mkOption {
+    type = types.submodule {
+      options = {
+        services = mkOption {
+          type = types.submodule {
+            options = {
+              authentik = bool false "Authentik identity provider, forward auth and SSO.";
+              vaultwarden = bool false "Vaultwarden password manager.";
+              nextcloud = bool false "Nextcloud.";
+              media = bool false "Jellyfin, Jellyseerr and the *arr stack.";
+              immich = bool false "Immich photo library.";
+              syncthing = bool false "Syncthing.";
+              dashboard = bool false "Homer dashboard.";
+              kiwix = bool false "Kiwix offline wikis.";
+              openstreetmap = bool false "OpenStreetMap tile server.";
+              switchboard = bool false "Switchboard.";
+              paperless = bool false "Paperless-ngx.";
+              stirling-pdf = bool false "Stirling PDF.";
+            };
+          };
         };
-      };
 
-      nas = mkOption {
-        default = defaults.nas;
-        type = types.attrsOf (freeform {
-          enabled = bool false;
-        });
-      };
-
-      vaultwarden = mkOption {
-        default = { };
-        type = freeform {
-          sync = mkOption {
-            default = { };
-            type = freeform {
-              enable = bool defaults.vaultwarden.sync.enable;
-              extraServices = mkOption {
-                default = [ ];
-                type = types.listOf (
-                  types.submodule {
-                    options = {
-                      name = mkOption { type = types.str; };
-                      namespace = mkOption { type = types.str; };
-                      secret = mkOption { type = types.str; };
-                      userKey = mkOption {
-                        type = types.str;
-                        default = "";
+        vaultwarden = mkOption {
+          default = { };
+          description = "Vaultwarden.";
+          type = freeform {
+            sync = mkOption {
+              default = { };
+              description = "Sync of service credentials into Vaultwarden.";
+              type = freeform {
+                enable = bool true "Whether to sync service credentials into Vaultwarden.";
+                extraServices = mkOption {
+                  default = [ ];
+                  description = "Extra Secrets to sync into Vaultwarden.";
+                  type = types.listOf (
+                    types.submodule {
+                      options = {
+                        name = mkOption {
+                          type = types.str;
+                          description = "Vaultwarden item name.";
+                        };
+                        namespace = mkOption {
+                          type = types.str;
+                          description = "Namespace of the Secret.";
+                        };
+                        secret = mkOption {
+                          type = types.str;
+                          description = "Name of the Secret.";
+                        };
+                        userKey = str "" "Secret key of the user name.";
+                        passwordKey = str "" "Secret key of the password.";
+                        urlKey = str "" "Secret key of the URL.";
+                        noteKeys = mkOption {
+                          type = types.listOf types.str;
+                          default = [ ];
+                          description = "Secret keys copied into the item notes.";
+                        };
+                        unit = str "" "systemd unit that creates the Secret.";
                       };
-                      passwordKey = mkOption {
-                        type = types.str;
-                        default = "";
-                      };
-                      urlKey = mkOption {
-                        type = types.str;
-                        default = "";
-                      };
-                      noteKeys = mkOption {
-                        type = types.listOf types.str;
-                        default = [ ];
-                      };
-                      unit = mkOption {
-                        type = types.str;
-                        default = "";
-                      };
-                    };
-                  }
-                );
+                    }
+                  );
+                };
               };
             };
           };
         };
-      };
 
-      authentik = mkOption {
-        default = { };
-        type = freeform {
-          ldap = mkOption {
-            default = { };
-            type = freeform { enable = bool defaults.authentik.ldap.enable; };
-          };
-          google = mkOption {
-            default = { };
-            type = freeform {
-              enable = bool defaults.authentik.google.enable;
-              clientId = mkOption {
-                type = types.str;
-                default = defaults.authentik.google.clientId;
+        authentik = mkOption {
+          default = { };
+          description = "Authentik, used when `services.authentik = true`.";
+          type = freeform {
+            ldap = mkOption {
+              default = { };
+              description = "Authentik LDAP outpost.";
+              type = freeform {
+                enable = bool false "Whether to deploy the LDAP outpost.";
               };
-              allowEnrollment = bool defaults.authentik.google.allowEnrollment;
+            };
+            google = mkOption {
+              default = { };
+              description = "Google login source.";
+              type = freeform {
+                enable = bool false "Whether to add Google as a login source.";
+                clientId = str "" "Google OAuth client ID.";
+                allowEnrollment = bool false "Whether Google logins may create users.";
+              };
+            };
+            bootstrapUsers = mkOption {
+              type = types.attrs;
+              default = { };
+              description = "Users created at bootstrap, keyed by user name.";
             };
           };
-          bootstrapUsers = mkOption {
-            type = types.attrs;
-            default = defaults.authentik.bootstrapUsers;
+        };
+
+        qbittorrent = mkOption {
+          type = types.attrs;
+          default = { };
+          description = "qBittorrent queue and ratio settings.";
+        };
+
+        opensubtitles = mkOption {
+          default = { };
+          description = "OpenSubtitles account for Bazarr.";
+          type = freeform {
+            username = str "" "OpenSubtitles user name.";
           };
         };
-      };
 
-      opensubtitles = mkOption {
-        default = { };
-        type = freeform {
-          username = mkOption {
-            type = types.str;
-            default = defaults.opensubtitles.username;
-          };
-        };
-      };
-
-      backup = mkOption {
-        default = { };
-        type = freeform {
-          localPath = mkOption {
-            type = types.str;
-            default = defaults.backup.localPath;
-          };
-          extraPaths = mkOption {
-            type = types.listOf types.str;
-            default = defaults.backup.extraPaths;
+        backup = mkOption {
+          default = { };
+          description = "restic backup.";
+          type = freeform {
+            localPath = str "/var/lib/backup/repo" "Local restic repository.";
+            extraPaths = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              description = "Extra host paths to back up.";
+            };
           };
         };
       };
     };
   };
 
-  config = {
-    homelab = serverConfig;
-
-    assertions = [
-      {
-        assertion = builtins.deepSeq config.homelab true;
-        message = "unreachable: homelab config failed to evaluate";
-      }
-    ];
-  };
+  config.cluster.certificates.provider = lib.mkDefault "acme";
 }

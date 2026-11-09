@@ -3,10 +3,10 @@
 # (Bazarr auto-provisions its own DB and config). Ingress uses Authentik
 # ForwardAuth middleware + Bazarr's own local auth.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -28,36 +28,38 @@ let
     middlewares = k8s.forwardAuthMiddleware;
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.bazarr = {
-    group = "downloads";
-    title = "Bazarr";
-    icon = "sh-bazarr";
-    subtitle = "Subtitles";
-    url = "https://${k8s.hostname "bazarr"}";
-    workload = {
-      namespace = "media";
-      name = "bazarr";
-    };
-    widget = {
-      type = "bazarr";
-      url = "http://bazarr.media.svc.cluster.local:6767";
-      secrets.key = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
+  lib.recursiveUpdate release {
+    dashboard.items.bazarr = {
+      group = "downloads";
+      title = "Bazarr";
+      icon = "sh-bazarr";
+      subtitle = "Subtitles";
+      url = "https://${k8s.hostname "bazarr"}";
+      workload = {
         namespace = "media";
-        secret = "bazarr-credentials";
-        key = "API_KEY";
+        name = "bazarr";
       };
+      widget = {
+        type = "bazarr";
+        url = "http://bazarr.media.svc.cluster.local:6767";
+        secrets.key = {
+          namespace = "media";
+          secret = "bazarr-credentials";
+          key = "API_KEY";
+        };
+      };
+      sort = 60;
     };
-    sort = 60;
-  };
-  systemd.services.bazarr-setup = {
-    after = (release.systemd.services.bazarr-setup.after or [ ]) ++ [
-      "arr-stack-setup.service"
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "arr-stack-setup.service"
-      "nfs-storage-setup.service"
-    ];
-  };
-}
+    systemd.services.bazarr-setup = {
+      after = (release.systemd.services.bazarr-setup.after or [ ]) ++ [
+        "arr-stack-setup.service"
+        "nfs-storage-setup.service"
+      ];
+      wants = [
+        "arr-stack-setup.service"
+        "nfs-storage-setup.service"
+      ];
+    };
+  }
+)

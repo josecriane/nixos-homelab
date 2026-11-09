@@ -10,8 +10,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  nodeConfig,
   switchboard,
   ...
 }:
@@ -19,7 +17,7 @@
 let
   ns = "switchboard";
   markerFile = "/var/lib/switchboard-setup-done";
-  isBootstrap = nodeConfig.bootstrap or false;
+  isBootstrap = config.cluster.isBootstrap;
 
   cfg = config.k8s.apps.switchboard;
 
@@ -50,7 +48,7 @@ let
       (builtins.readFile (switchboardPkgs.manifests + "/manifests.yaml"))
   );
 
-  svc = config.homelab.services;
+  svc = config.cluster.services;
   enabled = name: svc.${name} or false;
 
   serviceNamespaces = {
@@ -126,7 +124,7 @@ in
     };
   };
 
-  config = {
+  config = lib.mkIf config.cluster.services.switchboard {
     dashboard.items.switchboard = {
       group = "infrastructure";
       title = "Service Manager";
@@ -160,7 +158,7 @@ in
         "switchboard/switchboard"
       ];
       hide = [ "default" ];
-      machines = lib.mapAttrs (_: _: { }) serverConfig.nodes;
+      machines = lib.mapAttrs (_: _: { }) config.cluster.nodes;
     };
 
     systemd.services = lib.mkMerge [
@@ -266,7 +264,7 @@ in
             wantedBy = [ "multi-user.target" ];
 
             restartTriggers = [
-              (builtins.toJSON config.homelab.services)
+              (builtins.toJSON config.cluster.services)
             ]
             ++ (map (n: config.systemd.services.${n}.serviceConfig.ExecStart or "") setupServices);
 

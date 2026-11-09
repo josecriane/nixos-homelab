@@ -1,24 +1,14 @@
 {
   lib,
   k8s,
-  serverConfig,
+  cluster,
 }:
 
 let
   primary = k8s.primaryNas;
-  secondary =
-    lib.filter
-      (
-        cfg:
-        (cfg.enabled or false)
-        && (cfg.mediaPaths or [ ]) != [ ]
-        && (primary == null || cfg.ip != primary.ip)
-      )
-      (
-        lib.mapAttrsToList (name: cfg: cfg // { hostname = cfg.hostname or name; }) (
-          serverConfig.nas or { }
-        )
-      );
+  secondary = lib.filter (
+    cfg: cfg.enabled && cfg.mediaPaths != [ ] && (primary == null || cfg.ip != primary.ip)
+  ) (lib.attrValues cluster.nas);
 
   ownerOf = rel: lib.findFirst (cfg: lib.elem rel cfg.mediaPaths) null secondary;
 

@@ -96,7 +96,7 @@ let
     echo "Done."
   '';
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.paperless) ({
   systemd.services."${deployName}-backup" = {
     description = "Daily backup of the Paperless SQLite database to the NAS";
     after = [
@@ -121,4 +121,4 @@ in
       RandomizedDelaySec = "10m";
     };
   };
-}
+})

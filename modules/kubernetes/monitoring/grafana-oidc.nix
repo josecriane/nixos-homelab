@@ -6,14 +6,13 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "monitoring";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.monitoring) ({
   systemd.services.grafana-oidc-setup = {
     description = "Configure Grafana OIDC with Authentik SSO";
     after = [
@@ -102,4 +101,4 @@ in
       '';
     };
   };
-}
+})

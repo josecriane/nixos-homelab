@@ -6,7 +6,12 @@
 # Firewall rules for BitTorrent peer traffic (MetalLB layer2 ARPs the host
 # interface, so host packets must pass the firewall before kube-proxy DNATs
 # them to qbittorrent pods) live here too.
-{ pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
   imports = [
@@ -17,32 +22,34 @@
     ./qbittorrent/password.nix
   ];
 
-  systemd.services.arr-stack-setup = {
-    description = "arr-stack umbrella (Prowlarr, Sonarr, Radarr, qBittorrent)";
-    after = [
-      "prowlarr-setup.service"
-      "sonarr-setup.service"
-      "radarr-setup.service"
-      "qbittorrent-setup.service"
-    ];
-    wants = [
-      "prowlarr-setup.service"
-      "sonarr-setup.service"
-      "radarr-setup.service"
-      "qbittorrent-setup.service"
-    ];
-    wantedBy = [ "k3s-apps.target" ];
-    before = [ "k3s-apps.target" ];
+  config = lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+    systemd.services.arr-stack-setup = {
+      description = "arr-stack umbrella (Prowlarr, Sonarr, Radarr, qBittorrent)";
+      after = [
+        "prowlarr-setup.service"
+        "sonarr-setup.service"
+        "radarr-setup.service"
+        "qbittorrent-setup.service"
+      ];
+      wants = [
+        "prowlarr-setup.service"
+        "sonarr-setup.service"
+        "radarr-setup.service"
+        "qbittorrent-setup.service"
+      ];
+      wantedBy = [ "k3s-apps.target" ];
+      before = [ "k3s-apps.target" ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.coreutils}/bin/true";
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkgs.coreutils}/bin/true";
+      };
     };
-  };
 
-  networking.firewall = {
-    allowedTCPPorts = [ 6881 ];
-    allowedUDPPorts = [ 6881 ];
+    networking.firewall = {
+      allowedTCPPorts = [ 6881 ];
+      allowedUDPPorts = [ 6881 ];
+    };
   };
 }

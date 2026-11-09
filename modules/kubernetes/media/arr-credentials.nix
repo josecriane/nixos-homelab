@@ -37,7 +37,7 @@ let
       set_auth ${entry.app} "https://${k8s.hostname entry.host}"
     '';
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-credentials-setup = {
     description = "Configure credentials for arr-stack services";
     after = [
@@ -217,4 +217,4 @@ in
       '';
     };
   };
-}
+})

@@ -32,8 +32,6 @@
       ...
     }@inputs:
     let
-      withHomelabDefaults = cfg: nixpkgs.lib.recursiveUpdate (import ./modules/homelab-defaults.nix) cfg;
-
       mkHomelab =
         {
           clusterConfig,
@@ -43,10 +41,9 @@
           extraSpecialArgs ? { },
         }:
         nixos-k8s.lib.mkCluster {
-          clusterConfig = withHomelabDefaults clusterConfig;
-          inherit hostsPath secretsPath;
+          inherit clusterConfig hostsPath secretsPath;
           extraSpecialArgs = {
-            inherit nixos-k8s switchboard;
+            inherit switchboard;
             nixos-homelab = self;
           }
           // extraSpecialArgs;

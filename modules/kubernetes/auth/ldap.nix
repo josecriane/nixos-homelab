@@ -3,21 +3,20 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "authentik";
   markerFile = "/var/lib/authentik-ldap-setup-done";
-  domain = "${serverConfig.subdomain}.${serverConfig.domain}";
+  domain = "${config.cluster.subdomain}.${config.cluster.domain}";
 
   # Check if LDAP is enabled (used by Syncthing and other services)
-  ldapEnabled = config.homelab.authentik.ldap.enable;
-  ldapIP = serverConfig.authentik.ldap.ip or serverConfig.traefikIP;
+  ldapEnabled = config.cluster.authentik.ldap.enable;
+  ldapIP = config.cluster.authentik.ldap.ip or config.cluster.traefikIP;
 in
 {
-  config = lib.mkIf ldapEnabled {
+  config = lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik && ldapEnabled) {
     systemd.services.authentik-ldap-setup = {
       description = "Setup Authentik LDAP Outpost";
       # After core

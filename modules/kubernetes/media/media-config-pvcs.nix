@@ -1,4 +1,6 @@
 {
+  config,
+  lib,
   k8s,
   pkgs,
   ...
@@ -43,7 +45,7 @@ let
     }
   ];
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.media-config-pvcs-setup = {
     description = "Create media namespace config PVCs (default StorageClass)";
     wantedBy = [ "k3s-storage.target" ];
@@ -68,4 +70,4 @@ in
       '';
     };
   };
-}
+})

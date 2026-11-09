@@ -1,4 +1,5 @@
 {
+  config,
   k8s,
   lib,
   ...
@@ -64,31 +65,33 @@ let
     };
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.stirling-pdf = {
-    group = "documents";
-    title = "Stirling PDF";
-    icon = "sh-stirling-pdf";
-    subtitle = "PDF Tools";
-    url = "https://${k8s.hostname "pdf"}";
-    workload = {
-      namespace = "extra";
-      name = "stirling-pdf";
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.stirling-pdf) (
+  lib.recursiveUpdate release {
+    dashboard.items.stirling-pdf = {
+      group = "documents";
+      title = "Stirling PDF";
+      icon = "sh-stirling-pdf";
+      subtitle = "PDF Tools";
+      url = "https://${k8s.hostname "pdf"}";
+      workload = {
+        namespace = "extra";
+        name = "stirling-pdf";
+      };
+      sort = 20;
     };
-    sort = 20;
-  };
-  sso.oidcApps = [
-    {
-      name = "Stirling PDF";
-      slug = "stirling-pdf";
-      host = "pdf";
-      namespace = ns;
-      redirectPaths = [ "/login/oauth2/code/oidc" ];
-    }
-  ];
+    sso.oidcApps = [
+      {
+        name = "Stirling PDF";
+        slug = "stirling-pdf";
+        host = "pdf";
+        namespace = ns;
+        redirectPaths = [ "/login/oauth2/code/oidc" ];
+      }
+    ];
 
-  systemd.services.stirling-pdf-setup = {
-    after = release.systemd.services.stirling-pdf-setup.after ++ [ "authentik-sso-setup.service" ];
-    wants = [ "authentik-sso-setup.service" ];
-  };
-}
+    systemd.services.stirling-pdf-setup = {
+      after = release.systemd.services.stirling-pdf-setup.after ++ [ "authentik-sso-setup.service" ];
+      wants = [ "authentik-sso-setup.service" ];
+    };
+  }
+)

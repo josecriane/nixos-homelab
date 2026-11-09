@@ -2,16 +2,15 @@
   k8s,
   config,
   lib,
-  serverConfig,
   ...
 }:
 
 let
   ns = "extra";
 
-  cloudNas = lib.findFirst (
-    cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "paperless"
-  ) null (lib.attrValues config.homelab.nas);
+  cloudNas = lib.findFirst (cfg: cfg.enabled && (cfg.cloudPaths or { }) ? "paperless") null (
+    lib.attrValues config.cluster.nas
+  );
 
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.paperless}" else null;
@@ -32,7 +31,7 @@ let
 
     for dir in media consume export; do
       mkdir -p "${toString cloudHostPath}/$dir"
-      chown ${toString serverConfig.puid}:${toString serverConfig.pgid} "${toString cloudHostPath}/$dir" 2>/dev/null || true
+      chown ${toString config.cluster.puid}:${toString config.cluster.pgid} "${toString cloudHostPath}/$dir" 2>/dev/null || true
       chmod 775 "${toString cloudHostPath}/$dir" 2>/dev/null || true
     done
 
@@ -112,53 +111,55 @@ let
     };
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.paperless = {
-    group = "documents";
-    title = "Paperless";
-    icon = "sh-paperless-ngx";
-    subtitle = "Document Archive";
-    url = "https://${k8s.hostname "paperless"}";
-    workload = {
-      namespace = "extra";
-      name = "paperless";
-    };
-    widget = {
-      type = "paperlessngx";
-      url = "http://paperless.extra.svc.cluster.local:8000";
-      secrets = {
-        username = {
-          namespace = "extra";
-          secret = "paperless-oidc";
-          key = "PAPERLESS_ADMIN_USER";
-        };
-        password = {
-          namespace = "extra";
-          secret = "paperless-oidc";
-          key = "PAPERLESS_ADMIN_PASSWORD";
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.paperless) (
+  lib.recursiveUpdate release {
+    dashboard.items.paperless = {
+      group = "documents";
+      title = "Paperless";
+      icon = "sh-paperless-ngx";
+      subtitle = "Document Archive";
+      url = "https://${k8s.hostname "paperless"}";
+      workload = {
+        namespace = "extra";
+        name = "paperless";
+      };
+      widget = {
+        type = "paperlessngx";
+        url = "http://paperless.extra.svc.cluster.local:8000";
+        secrets = {
+          username = {
+            namespace = "extra";
+            secret = "paperless-oidc";
+            key = "PAPERLESS_ADMIN_USER";
+          };
+          password = {
+            namespace = "extra";
+            secret = "paperless-oidc";
+            key = "PAPERLESS_ADMIN_PASSWORD";
+          };
         };
       };
+      sort = 10;
     };
-    sort = 10;
-  };
-  sso.oidcApps = [
-    {
-      name = "Paperless";
-      slug = "paperless";
-      host = "paperless";
-      namespace = ns;
-      redirectPaths = [ "/accounts/oidc/authentik/login/callback/" ];
-    }
-  ];
+    sso.oidcApps = [
+      {
+        name = "Paperless";
+        slug = "paperless";
+        host = "paperless";
+        namespace = ns;
+        redirectPaths = [ "/accounts/oidc/authentik/login/callback/" ];
+      }
+    ];
 
-  systemd.services.paperless-setup = {
-    after = release.systemd.services.paperless-setup.after ++ [
-      "authentik-sso-setup.service"
-      "nfs-storage-cloud-setup.service"
-    ];
-    wants = [
-      "authentik-sso-setup.service"
-      "nfs-storage-cloud-setup.service"
-    ];
-  };
-}
+    systemd.services.paperless-setup = {
+      after = release.systemd.services.paperless-setup.after ++ [
+        "authentik-sso-setup.service"
+        "nfs-storage-cloud-setup.service"
+      ];
+      wants = [
+        "authentik-sso-setup.service"
+        "nfs-storage-cloud-setup.service"
+      ];
+    };
+  }
+)

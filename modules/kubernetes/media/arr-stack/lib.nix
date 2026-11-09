@@ -4,20 +4,20 @@
 # directly to createHelmRelease (serialized to JSON, converted to YAML at
 # deploy time via yq). No template file, no token substitution.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
 
-  puidInt = serverConfig.puid;
-  pgidInt = serverConfig.pgid;
+  puidInt = config.cluster.puid;
+  pgidInt = config.cluster.pgid;
   puid = toString puidInt;
   pgid = toString pgidInt;
-  timezone = serverConfig.timezone;
+  timezone = config.cluster.timezone;
 
   initApiKeyScriptRaw = builtins.readFile ./init-api-key.sh;
   initApiKeyScript =

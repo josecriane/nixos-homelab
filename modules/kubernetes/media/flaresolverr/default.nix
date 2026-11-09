@@ -3,20 +3,23 @@
 # this module as plain YAML (values.yaml). Common tokens (__TIMEZONE__,
 # __PUID__, __PGID__) are auto-substituted by createHelmRelease.
 {
+  config,
+  lib,
   k8s,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
 in
-k8s.createHelmRelease {
-  name = "flaresolverr";
-  namespace = "media";
-  tier = "apps";
-  chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
-  version = "4.6.1";
-  valuesFile = ./values.yaml;
-  waitFor = "flaresolverr";
-}
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
+  k8s.createHelmRelease {
+    name = "flaresolverr";
+    namespace = "media";
+    tier = "apps";
+    chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
+    version = "4.6.1";
+    valuesFile = ./values.yaml;
+    waitFor = "flaresolverr";
+  }
+)

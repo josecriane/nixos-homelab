@@ -1,14 +1,17 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   arr = import ./arr-lib.nix { inherit lib; };
-  paths = import ../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
   markerFile = "/var/lib/arr-root-folders-setup-done";
 
   folders = [
@@ -47,7 +50,7 @@ let
     in
     "arr_ensure ${folder.app} rootfolder ${lib.escapeShellArg payload} ${lib.escapeShellArg match} ${lib.escapeShellArg folder.path}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-root-folders-setup = {
     description = "Configure root folders for arr-stack services";
     after = [
@@ -82,4 +85,4 @@ in
       '';
     };
   };
-}
+})

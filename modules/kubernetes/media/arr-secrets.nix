@@ -10,7 +10,7 @@ let
   ns = "media";
   markerFile = "/var/lib/arr-secrets-setup-done";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-secrets-setup = {
     description = "Generate stable API keys for arr-stack services";
     after = [
@@ -67,4 +67,4 @@ in
       '';
     };
   };
-}
+})

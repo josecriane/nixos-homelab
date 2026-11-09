@@ -1,8 +1,8 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -70,7 +70,7 @@ let
     }
   ];
 
-  prowlarrCfg = serverConfig.prowlarr or { };
+  prowlarrCfg = config.cluster.prowlarr;
   indexers = prowlarrCfg.indexers or [ ];
   removedIndexers = prowlarrCfg.removedIndexers or [ ];
   indexerPriorities = prowlarrCfg.indexerPriorities or { };
@@ -100,7 +100,7 @@ let
 
   removeAppCall = name: "remove_app ${lib.escapeShellArg name}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-prowlarr-sync-setup = {
     description = "Configure Prowlarr to sync indexers with arr-stack apps";
     after = [
@@ -451,4 +451,4 @@ in
       '';
     };
   };
-}
+})

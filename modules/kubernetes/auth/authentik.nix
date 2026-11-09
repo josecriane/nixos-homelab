@@ -2,8 +2,6 @@
   k8s,
   config,
   lib,
-  serverConfig,
-  secretsPath,
   ...
 }:
 
@@ -51,7 +49,7 @@ let
 
     store_credentials "${ns}" "authentik-setup-credentials" \
       "USER=akadmin" "PASSWORD=$AUTHENTIK_ADMIN_PASSWORD" \
-      "EMAIL=${serverConfig.authentik.adminEmail}" "URL=https://$(hostname auth)" \
+      "EMAIL=${config.cluster.authentik.adminEmail}" "URL=https://$(hostname auth)" \
       "AUTHENTIK_SECRET_KEY=$AUTHENTIK_SECRET_KEY" "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
       "BOOTSTRAP_TOKEN=$BOOTSTRAP_TOKEN"
   '';
@@ -69,7 +67,7 @@ let
     version = chartVersion;
     valuesFile = ./values-authentik.yaml;
     substitutions = {
-      ADMIN_EMAIL = serverConfig.authentik.adminEmail;
+      ADMIN_EMAIL = config.cluster.authentik.adminEmail;
     };
     runtimeSets = [
       "authentik.secret_key=$AUTHENTIK_SECRET_KEY"
@@ -87,31 +85,33 @@ let
     };
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.authentik = {
-    group = "infrastructure";
-    title = "Authentik";
-    icon = "sh-authentik";
-    subtitle = "SSO/Identity";
-    url = "https://${k8s.hostname "auth"}";
-    workload = {
-      namespace = "authentik";
-      name = "authentik-server";
-      selector = "app.kubernetes.io/name=authentik,app.kubernetes.io/component=server";
-    };
-    widget = {
-      type = "authentik";
-      url = "http://authentik-server.authentik.svc.cluster.local:80";
-      secrets.key = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik) (
+  lib.recursiveUpdate release {
+    dashboard.items.authentik = {
+      group = "infrastructure";
+      title = "Authentik";
+      icon = "sh-authentik";
+      subtitle = "SSO/Identity";
+      url = "https://${k8s.hostname "auth"}";
+      workload = {
         namespace = "authentik";
-        secret = "authentik-api-token";
-        key = "TOKEN";
+        name = "authentik-server";
+        selector = "app.kubernetes.io/name=authentik,app.kubernetes.io/component=server";
       };
-      options.version = 2;
+      widget = {
+        type = "authentik";
+        url = "http://authentik-server.authentik.svc.cluster.local:80";
+        secrets.key = {
+          namespace = "authentik";
+          secret = "authentik-api-token";
+          key = "TOKEN";
+        };
+        options.version = 2;
+      };
+      sort = 20;
     };
-    sort = 20;
-  };
-  age.secrets.authentik-admin-password = {
-    file = "${secretsPath}/authentik-admin-password.age";
-  };
-}
+    age.secrets.authentik-admin-password = {
+      file = "${config.cluster.secretsPath}/authentik-admin-password.age";
+    };
+  }
+)

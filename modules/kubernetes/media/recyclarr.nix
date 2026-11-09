@@ -11,7 +11,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -238,7 +237,7 @@ let
 
   sed = "${pkgs.gnused}/bin/sed";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.recyclarr-setup = {
     description = "Setup Recyclarr TRaSH Guides sync";
     after = [
@@ -392,4 +391,4 @@ in
       '';
     };
   };
-}
+})

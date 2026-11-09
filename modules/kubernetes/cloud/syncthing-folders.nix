@@ -9,16 +9,15 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "syncthing";
-  puid = toString (serverConfig.puid);
-  pgid = toString (serverConfig.pgid);
+  puid = toString (config.cluster.puid);
+  pgid = toString (config.cluster.pgid);
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.syncthing) ({
   systemd.services.syncthing-folders-reconcile = {
     description = "Reconcile Syncthing folder paths under /var/syncthing/data/";
     after = [
@@ -102,4 +101,4 @@ in
       Unit = "syncthing-folders-reconcile.service";
     };
   };
-}
+})

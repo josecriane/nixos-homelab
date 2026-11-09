@@ -64,7 +64,7 @@ let
     "arr_patch ${target.app} config/naming \"\$FILTER_${lib.toUpper target.naming}\" naming\n"
     + "        arr_patch ${target.app} config/mediamanagement \"\$FILTER_${lib.toUpper target.mgmt}\" \"media management\"";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-naming-setup = {
     description = "Configure TRaSH Guides naming and media management for Sonarr/Radarr";
     after = [
@@ -105,4 +105,4 @@ in
       '';
     };
   };
-}
+})

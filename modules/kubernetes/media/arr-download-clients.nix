@@ -3,13 +3,15 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   arr = import ./arr-lib.nix { inherit lib; };
-  paths = import ../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
   ns = arr.ns;
   markerFile = "/var/lib/arr-download-clients-setup-done";
 
@@ -20,7 +22,7 @@ let
     "books"
   ];
 
-  qbitCfg = config.homelab.qbittorrent;
+  qbitCfg = config.cluster.qbittorrent;
   qbitMaxActiveDownloads = toString (qbitCfg.maxActiveDownloads or 5);
   qbitMaxActiveTorrents = toString (qbitCfg.maxActiveTorrents or 10);
   qbitMaxActiveUploads = toString (qbitCfg.maxActiveUploads or 3);
@@ -48,7 +50,7 @@ let
 
   addClient = c: "add_qbit_client ${c.app} ${c.field} ${c.category}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-download-clients-setup = {
     description = "Configure qBittorrent as download client in arr-stack services";
     after = [
@@ -240,4 +242,4 @@ in
       '';
     };
   };
-}
+})

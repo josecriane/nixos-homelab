@@ -9,7 +9,6 @@
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -39,7 +38,7 @@ let
     "Peliculas ES"
     "Series ES"
   ];
-  libraries = config.homelab.jellyfin.libraries or defaultLibraries;
+  libraries = config.cluster.jellyfin.libraries or defaultLibraries;
   libraryNames = map (l: l.name) libraries;
   pathsOf = l: l.paths or [ l.path ];
   libraryEntries = lib.concatMapStringsSep " " (
@@ -81,281 +80,283 @@ let
       pod-security.kubernetes.io/audit=privileged
   '';
 in
-lib.recursiveUpdate release {
-  dashboard.items.jellyfin = {
-    group = "media";
-    title = "Jellyfin";
-    icon = "sh-jellyfin";
-    subtitle = "Media Server";
-    url = "https://${k8s.hostname "jellyfin"}";
-    workload = {
-      namespace = "media";
-      name = "jellyfin";
-    };
-    widget = {
-      type = "jellyfin";
-      url = "http://jellyfin.media.svc.cluster.local:8096";
-      secrets.key = {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
+  lib.recursiveUpdate release {
+    dashboard.items.jellyfin = {
+      group = "media";
+      title = "Jellyfin";
+      icon = "sh-jellyfin";
+      subtitle = "Media Server";
+      url = "https://${k8s.hostname "jellyfin"}";
+      workload = {
         namespace = "media";
-        secret = "jellyfin-credentials";
-        key = "API_KEY";
+        name = "jellyfin";
       };
-      options.enableBlocks = true;
+      widget = {
+        type = "jellyfin";
+        url = "http://jellyfin.media.svc.cluster.local:8096";
+        secrets.key = {
+          namespace = "media";
+          secret = "jellyfin-credentials";
+          key = "API_KEY";
+        };
+        options.enableBlocks = true;
+      };
+      sort = 10;
     };
-    sort = 10;
-  };
-  systemd.services.jellyfin-setup = {
-    after = (release.systemd.services.jellyfin-setup.after or [ ]) ++ [
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "nfs-storage-setup.service"
-    ];
-    serviceConfig.ExecStartPre = "${pssPreLabel}";
-  };
+    systemd.services.jellyfin-setup = {
+      after = (release.systemd.services.jellyfin-setup.after or [ ]) ++ [
+        "nfs-storage-setup.service"
+      ];
+      wants = [
+        "nfs-storage-setup.service"
+      ];
+      serviceConfig.ExecStartPre = "${pssPreLabel}";
+    };
 
-  systemd.services.jellyfin-config-setup = {
-    description = "Configure Jellyfin wizard, libraries, VA-API, SSO";
-    after = [
-      "k3s-apps.target"
-      "jellyfin-setup.service"
-      "authentik-sso-setup.service"
-    ];
-    requires = [ "k3s-apps.target" ];
-    wants = [
-      "jellyfin-setup.service"
-      "authentik-sso-setup.service"
-    ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    systemd.services.jellyfin-config-setup = {
+      description = "Configure Jellyfin wizard, libraries, VA-API, SSO";
+      after = [
+        "k3s-apps.target"
+        "jellyfin-setup.service"
+        "authentik-sso-setup.service"
+      ];
+      requires = [ "k3s-apps.target" ];
+      wants = [
+        "jellyfin-setup.service"
+        "authentik-sso-setup.service"
+      ];
+      wantedBy = [ "k3s-extras.target" ];
+      before = [ "k3s-extras.target" ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "jellyfin-config-setup" ''
-        ${k8s.libShSource}
-        setup_preamble "${configMarkerFile}" "Jellyfin config"
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "jellyfin-config-setup" ''
+          ${k8s.libShSource}
+          setup_preamble "${configMarkerFile}" "Jellyfin config"
 
-        wait_for_k3s
-        wait_for_deployment "${ns}" "jellyfin" 300
+          wait_for_k3s
+          wait_for_deployment "${ns}" "jellyfin" 300
 
-        pkill -f 'port-forward.*jellyfin' 2>/dev/null || true
-        sleep 2
-        $KUBECTL port-forward -n ${ns} svc/jellyfin 18096:8096 &
-        PF_PID=$!
-        sleep 5
-
-        JELLYFIN_URL="http://localhost:18096"
-
-        for i in $(seq 1 30); do
-          if $CURL -s "$JELLYFIN_URL/System/Info/Public" 2>/dev/null | grep -q "ServerName"; then
-            echo "API available"
-            break
-          fi
-          sleep 3
-        done
-
-        WIZARD_COMPLETED=$($CURL -s "$JELLYFIN_URL/System/Info/Public" 2>/dev/null | $JQ -r '.StartupWizardCompleted // false')
-
-        if [ "$WIZARD_COMPLETED" = "false" ]; then
-          echo "Running wizard..."
-          sleep 10
-
-          ADMIN_PASSWORD=$(generate_password 24)
-
-          $CURL -s -X POST "$JELLYFIN_URL/Startup/Configuration" \
-            -H "Content-Type: application/json" \
-            -d '{"UICulture":"es","MetadataCountryCode":"ES","PreferredMetadataLanguage":"es"}' 2>/dev/null || true
+          pkill -f 'port-forward.*jellyfin' 2>/dev/null || true
           sleep 2
+          $KUBECTL port-forward -n ${ns} svc/jellyfin 18096:8096 &
+          PF_PID=$!
+          sleep 5
 
-          CURRENT_USER_NAME=$($CURL -s "$JELLYFIN_URL/Startup/User" 2>/dev/null | $JQ -r '.Name // "admin"')
+          JELLYFIN_URL="http://localhost:18096"
 
-          USER_CREATED="false"
-          for attempt in $(seq 1 5); do
-            USER_RESPONSE=$($CURL -s -w "\n%{http_code}" -X POST "$JELLYFIN_URL/Startup/User" \
-              -H "Content-Type: application/json" \
-              -d "{\"Name\":\"$CURRENT_USER_NAME\",\"Password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null)
-            HTTP_CODE=$(echo "$USER_RESPONSE" | tail -1)
-            if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then
-              USER_CREATED="true"
+          for i in $(seq 1 30); do
+            if $CURL -s "$JELLYFIN_URL/System/Info/Public" 2>/dev/null | grep -q "ServerName"; then
+              echo "API available"
               break
             fi
             sleep 3
           done
 
-          $CURL -s -X POST "$JELLYFIN_URL/Startup/Complete" -H "Content-Type: application/json" 2>/dev/null || true
-          sleep 3
+          WIZARD_COMPLETED=$($CURL -s "$JELLYFIN_URL/System/Info/Public" 2>/dev/null | $JQ -r '.StartupWizardCompleted // false')
 
-          if [ "$USER_CREATED" = "true" ]; then
-            store_credentials "${ns}" "jellyfin-credentials" \
-              "ADMIN_USER=$CURRENT_USER_NAME" "ADMIN_PASSWORD=$ADMIN_PASSWORD"
-          fi
-        fi
+          if [ "$WIZARD_COMPLETED" = "false" ]; then
+            echo "Running wizard..."
+            sleep 10
 
-        ADMIN_USER=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_USER")
-        ADMIN_PASSWORD=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_PASSWORD")
-        if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASSWORD" ]; then
+            ADMIN_PASSWORD=$(generate_password 24)
 
-          JELLYFIN_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyfin --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
-          [ -n "$JELLYFIN_POD" ] && $KUBECTL exec -n ${ns} $JELLYFIN_POD -- mkdir -p ${libraryPaths} 2>/dev/null || true
+            $CURL -s -X POST "$JELLYFIN_URL/Startup/Configuration" \
+              -H "Content-Type: application/json" \
+              -d '{"UICulture":"es","MetadataCountryCode":"ES","PreferredMetadataLanguage":"es"}' 2>/dev/null || true
+            sleep 2
 
-          AUTH_RESPONSE=$($CURL -s -X POST "$JELLYFIN_URL/Users/AuthenticateByName" \
-            -H "Content-Type: application/json" \
-            -H "X-Emby-Authorization: MediaBrowser Client=\"Setup\", Device=\"NixOS\", DeviceId=\"setup\", Version=\"1.0\"" \
-            -d "{\"Username\":\"$ADMIN_USER\",\"Pw\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
-          ACCESS_TOKEN=$(echo "$AUTH_RESPONSE" | $JQ -r '.AccessToken // empty' 2>/dev/null || echo "")
+            CURRENT_USER_NAME=$($CURL -s "$JELLYFIN_URL/Startup/User" 2>/dev/null | $JQ -r '.Name // "admin"')
 
-          if [ -n "$ACCESS_TOKEN" ]; then
-            EXISTING_LIBS=$($CURL -s "$JELLYFIN_URL/Library/VirtualFolders?api_key=$ACCESS_TOKEN" 2>/dev/null)
-
-            for lib_name in ${removedLibraries}; do
-              if echo "$EXISTING_LIBS" | grep -q "\"Name\":\"$lib_name\""; then
-                $CURL -s -X DELETE "$JELLYFIN_URL/Library/VirtualFolders?name=$(echo $lib_name | sed 's/ /%20/g')&refreshLibrary=false&api_key=$ACCESS_TOKEN" 2>/dev/null || true
-                echo "  Library removed: $lib_name"
+            USER_CREATED="false"
+            for attempt in $(seq 1 5); do
+              USER_RESPONSE=$($CURL -s -w "\n%{http_code}" -X POST "$JELLYFIN_URL/Startup/User" \
+                -H "Content-Type: application/json" \
+                -d "{\"Name\":\"$CURRENT_USER_NAME\",\"Password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null)
+              HTTP_CODE=$(echo "$USER_RESPONSE" | tail -1)
+              if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then
+                USER_CREATED="true"
+                break
               fi
+              sleep 3
             done
 
-            for lib_entry in ${libraryEntries}; do
-              lib_type=$(echo "$lib_entry" | cut -d: -f1)
-              lib_name=$(echo "$lib_entry" | cut -d: -f2)
-              lib_path=$(echo "$lib_entry" | cut -d: -f3)
+            $CURL -s -X POST "$JELLYFIN_URL/Startup/Complete" -H "Content-Type: application/json" 2>/dev/null || true
+            sleep 3
 
-              if ! echo "$EXISTING_LIBS" | grep -q "\"Name\":\"$lib_name\""; then
-                $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders?name=$(echo $lib_name | sed 's/ /%20/g')&collectionType=$lib_type&refreshLibrary=false&api_key=$ACCESS_TOKEN" \
-                  -H "Content-Type: application/json" -d '{"LibraryOptions":{"EnableRealtimeMonitor":true,"EnableInternetProviders":true}}' 2>/dev/null || true
-                $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders/Paths?refreshLibrary=false&api_key=$ACCESS_TOKEN" \
-                  -H "Content-Type: application/json" -d "{\"Name\":\"$lib_name\",\"Path\":\"$lib_path\"}" 2>/dev/null || true
-                echo "  Library created: $lib_name ($lib_path)"
-                EXISTING_LIBS=$($CURL -s "$JELLYFIN_URL/Library/VirtualFolders?api_key=$ACCESS_TOKEN" 2>/dev/null)
-              elif ! echo "$EXISTING_LIBS" | $JQ -e --arg n "$lib_name" --arg p "$lib_path" '.[] | select(.Name == $n) | .Locations | index($p)' >/dev/null 2>&1; then
-                $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders/Paths?refreshLibrary=false&api_key=$ACCESS_TOKEN" \
-                  -H "Content-Type: application/json" -d "{\"Name\":\"$lib_name\",\"Path\":\"$lib_path\"}" 2>/dev/null || true
-                echo "  Library path added: $lib_name ($lib_path)"
-              fi
-            done
-
-            $CURL -s -X POST "$JELLYFIN_URL/Library/Refresh?api_key=$ACCESS_TOKEN" 2>/dev/null || true
-
-            ENCODING=$($CURL -s "$JELLYFIN_URL/System/Configuration/encoding?api_key=$ACCESS_TOKEN" 2>/dev/null)
-            if [ -n "$ENCODING" ]; then
-              UPDATED=$(echo "$ENCODING" | $JQ '
-                .HardwareAccelerationType = "vaapi" |
-                .VaapiDevice = "/dev/dri/renderD128" |
-                .EnableHardwareEncoding = true |
-                .AllowHevcEncoding = true |
-                .EnableTonemapping = true |
-                .EnableDecodingColorDepth10Hevc = true |
-                .EnableDecodingColorDepth10Vp9 = true |
-                .HardwareDecodingCodecs = ["h264","hevc","mpeg2video","vc1","vp9"]
-              ')
-              $CURL -s -X POST "$JELLYFIN_URL/System/Configuration/encoding?api_key=$ACCESS_TOKEN" \
-                -H "Content-Type: application/json" -d "$UPDATED" 2>/dev/null || true
-              echo "VA-API hardware acceleration configured"
+            if [ "$USER_CREATED" = "true" ]; then
+              store_credentials "${ns}" "jellyfin-credentials" \
+                "ADMIN_USER=$CURRENT_USER_NAME" "ADMIN_PASSWORD=$ADMIN_PASSWORD"
             fi
-            echo "Library scan started"
           fi
-        fi
 
-        kill $PF_PID 2>/dev/null || true
-        sleep 2
+          ADMIN_USER=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_USER")
+          ADMIN_PASSWORD=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_PASSWORD")
+          if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASSWORD" ]; then
 
-        if $KUBECTL get secret authentik-sso-credentials -n ${ns} &>/dev/null; then
-          JELLYFIN_CLIENT_ID=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYFIN_CLIENT_ID}' | base64 -d)
-          JELLYFIN_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYFIN_CLIENT_SECRET}' | base64 -d)
-
-          if [ -n "$JELLYFIN_CLIENT_SECRET" ]; then
             JELLYFIN_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyfin --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+            [ -n "$JELLYFIN_POD" ] && $KUBECTL exec -n ${ns} $JELLYFIN_POD -- mkdir -p ${libraryPaths} 2>/dev/null || true
 
-            if [ -n "$JELLYFIN_POD" ]; then
-              $KUBECTL exec -n ${ns} $JELLYFIN_POD -- mkdir -p /config/plugins/SSO-Auth
-              PLUGIN_TMP=$(mktemp -d)
-              $CURL -sL -o "$PLUGIN_TMP/sso.zip" \
-                "https://github.com/9p4/jellyfin-plugin-sso/releases/download/v4.0.0.3/sso-authentication_4.0.0.3.zip" || true
+            AUTH_RESPONSE=$($CURL -s -X POST "$JELLYFIN_URL/Users/AuthenticateByName" \
+              -H "Content-Type: application/json" \
+              -H "X-Emby-Authorization: MediaBrowser Client=\"Setup\", Device=\"NixOS\", DeviceId=\"setup\", Version=\"1.0\"" \
+              -d "{\"Username\":\"$ADMIN_USER\",\"Pw\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
+            ACCESS_TOKEN=$(echo "$AUTH_RESPONSE" | $JQ -r '.AccessToken // empty' 2>/dev/null || echo "")
 
-              if [ -f "$PLUGIN_TMP/sso.zip" ]; then
-                ${pkgs.unzip}/bin/unzip -o "$PLUGIN_TMP/sso.zip" -d "$PLUGIN_TMP/plugin" 2>/dev/null || true
-                for dll in "$PLUGIN_TMP/plugin"/*.dll; do
-                  [ -f "$dll" ] && $KUBECTL cp "$dll" "${ns}/$JELLYFIN_POD:/config/plugins/SSO-Auth/$(basename $dll)" 2>/dev/null || true
-                done
-                [ -f "$PLUGIN_TMP/plugin/meta.json" ] && $KUBECTL cp "$PLUGIN_TMP/plugin/meta.json" "${ns}/$JELLYFIN_POD:/config/plugins/SSO-Auth/meta.json" 2>/dev/null || true
-                rm -rf "$PLUGIN_TMP"
+            if [ -n "$ACCESS_TOKEN" ]; then
+              EXISTING_LIBS=$($CURL -s "$JELLYFIN_URL/Library/VirtualFolders?api_key=$ACCESS_TOKEN" 2>/dev/null)
 
-                $KUBECTL rollout restart deployment jellyfin -n ${ns}
-                $KUBECTL rollout status deployment jellyfin -n ${ns} --timeout=180s
-                sleep 5
-
-                pkill -f 'port-forward.*jellyfin' 2>/dev/null || true
-                sleep 2
-                $KUBECTL port-forward -n ${ns} svc/jellyfin 18096:8096 &
-                PF_PID=$!
-                sleep 5
-
-                for i in $(seq 1 30); do
-                  if $CURL -s http://localhost:18096/System/Info/Public 2>/dev/null | grep -q "ServerName"; then
-                    break
-                  fi
-                  sleep 3
-                done
-
-                ADMIN_USER=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_USER")
-                ADMIN_PASSWORD=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_PASSWORD")
-                if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASSWORD" ]; then
-                  AUTH_RESPONSE=$($CURL -s -X POST "http://localhost:18096/Users/AuthenticateByName" \
-                    -H "Content-Type: application/json" \
-                    -H "X-Emby-Authorization: MediaBrowser Client=\"SSO-Setup\", Device=\"NixOS\", DeviceId=\"setup\", Version=\"1.0\"" \
-                    -d "{\"Username\":\"$ADMIN_USER\",\"Pw\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
-                  ACCESS_TOKEN=$(echo "$AUTH_RESPONSE" | $JQ -r '.AccessToken // empty' 2>/dev/null || echo "")
-
-                  if [ -n "$ACCESS_TOKEN" ]; then
-                    $CURL -s -X POST "http://localhost:18096/sso/OID/Add/Authentik?api_key=$ACCESS_TOKEN" \
-                      -H "Content-Type: application/json" \
-                      -d "{
-                        \"oidEndpoint\": \"https://$(hostname auth)/application/o/jellyfin/\",
-                        \"oidClientId\": \"$JELLYFIN_CLIENT_ID\",
-                        \"oidSecret\": \"$JELLYFIN_CLIENT_SECRET\",
-                        \"enabled\": true,
-                        \"enableAuthorization\": true,
-                        \"enableAllFolders\": true,
-                        \"enabledFolders\": [],
-                        \"adminRoles\": [\"admins\"],
-                        \"roles\": [],
-                        \"enableFolderRoles\": false,
-                        \"folderRoleMapping\": [],
-                        \"roleClaim\": \"groups\",
-                        \"oidScopes\": [\"openid\", \"profile\", \"email\"],
-                        \"schemeOverride\": \"https\",
-                        \"disableHttps\": false,
-                        \"doNotValidateEndpoints\": false,
-                        \"doNotValidateIssuerName\": false
-                      }" 2>/dev/null
-
-                    BRANDING_TMP=$(mktemp)
-                    cat > "$BRANDING_TMP" << 'ENDJSON'
-        {
-          "LoginDisclaimer": "<form action=\"/sso/OID/start/Authentik\" style=\"margin: 1em 0;\"><button class=\"raised block emby-button button-submit\" type=\"submit\" style=\"width: 100%; padding: 0.9em 1em; margin-bottom: 0.5em;\">Sign in with Authentik</button></form><hr style=\"margin: 1em 0; border-color: rgba(255,255,255,0.1);\">",
-          "CustomCss": ".disclaimerContainer { display: block; margin-bottom: 1em; }",
-          "SplashscreenEnabled": false
-        }
-        ENDJSON
-                    $CURL -s -X POST "http://localhost:18096/System/Configuration/branding?api_key=$ACCESS_TOKEN" \
-                      -H "Content-Type: application/json" -d @"$BRANDING_TMP" 2>/dev/null
-                    rm -f "$BRANDING_TMP"
-                  fi
+              for lib_name in ${removedLibraries}; do
+                if echo "$EXISTING_LIBS" | grep -q "\"Name\":\"$lib_name\""; then
+                  $CURL -s -X DELETE "$JELLYFIN_URL/Library/VirtualFolders?name=$(echo $lib_name | sed 's/ /%20/g')&refreshLibrary=false&api_key=$ACCESS_TOKEN" 2>/dev/null || true
+                  echo "  Library removed: $lib_name"
                 fi
-                kill $PF_PID 2>/dev/null || true
+              done
+
+              for lib_entry in ${libraryEntries}; do
+                lib_type=$(echo "$lib_entry" | cut -d: -f1)
+                lib_name=$(echo "$lib_entry" | cut -d: -f2)
+                lib_path=$(echo "$lib_entry" | cut -d: -f3)
+
+                if ! echo "$EXISTING_LIBS" | grep -q "\"Name\":\"$lib_name\""; then
+                  $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders?name=$(echo $lib_name | sed 's/ /%20/g')&collectionType=$lib_type&refreshLibrary=false&api_key=$ACCESS_TOKEN" \
+                    -H "Content-Type: application/json" -d '{"LibraryOptions":{"EnableRealtimeMonitor":true,"EnableInternetProviders":true}}' 2>/dev/null || true
+                  $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders/Paths?refreshLibrary=false&api_key=$ACCESS_TOKEN" \
+                    -H "Content-Type: application/json" -d "{\"Name\":\"$lib_name\",\"Path\":\"$lib_path\"}" 2>/dev/null || true
+                  echo "  Library created: $lib_name ($lib_path)"
+                  EXISTING_LIBS=$($CURL -s "$JELLYFIN_URL/Library/VirtualFolders?api_key=$ACCESS_TOKEN" 2>/dev/null)
+                elif ! echo "$EXISTING_LIBS" | $JQ -e --arg n "$lib_name" --arg p "$lib_path" '.[] | select(.Name == $n) | .Locations | index($p)' >/dev/null 2>&1; then
+                  $CURL -s -X POST "$JELLYFIN_URL/Library/VirtualFolders/Paths?refreshLibrary=false&api_key=$ACCESS_TOKEN" \
+                    -H "Content-Type: application/json" -d "{\"Name\":\"$lib_name\",\"Path\":\"$lib_path\"}" 2>/dev/null || true
+                  echo "  Library path added: $lib_name ($lib_path)"
+                fi
+              done
+
+              $CURL -s -X POST "$JELLYFIN_URL/Library/Refresh?api_key=$ACCESS_TOKEN" 2>/dev/null || true
+
+              ENCODING=$($CURL -s "$JELLYFIN_URL/System/Configuration/encoding?api_key=$ACCESS_TOKEN" 2>/dev/null)
+              if [ -n "$ENCODING" ]; then
+                UPDATED=$(echo "$ENCODING" | $JQ '
+                  .HardwareAccelerationType = "vaapi" |
+                  .VaapiDevice = "/dev/dri/renderD128" |
+                  .EnableHardwareEncoding = true |
+                  .AllowHevcEncoding = true |
+                  .EnableTonemapping = true |
+                  .EnableDecodingColorDepth10Hevc = true |
+                  .EnableDecodingColorDepth10Vp9 = true |
+                  .HardwareDecodingCodecs = ["h264","hevc","mpeg2video","vc1","vp9"]
+                ')
+                $CURL -s -X POST "$JELLYFIN_URL/System/Configuration/encoding?api_key=$ACCESS_TOKEN" \
+                  -H "Content-Type: application/json" -d "$UPDATED" 2>/dev/null || true
+                echo "VA-API hardware acceleration configured"
+              fi
+              echo "Library scan started"
+            fi
+          fi
+
+          kill $PF_PID 2>/dev/null || true
+          sleep 2
+
+          if $KUBECTL get secret authentik-sso-credentials -n ${ns} &>/dev/null; then
+            JELLYFIN_CLIENT_ID=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYFIN_CLIENT_ID}' | base64 -d)
+            JELLYFIN_CLIENT_SECRET=$($KUBECTL get secret authentik-sso-credentials -n ${ns} -o jsonpath='{.data.JELLYFIN_CLIENT_SECRET}' | base64 -d)
+
+            if [ -n "$JELLYFIN_CLIENT_SECRET" ]; then
+              JELLYFIN_POD=$($KUBECTL get pods -n ${ns} -l app.kubernetes.io/name=jellyfin --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+
+              if [ -n "$JELLYFIN_POD" ]; then
+                $KUBECTL exec -n ${ns} $JELLYFIN_POD -- mkdir -p /config/plugins/SSO-Auth
+                PLUGIN_TMP=$(mktemp -d)
+                $CURL -sL -o "$PLUGIN_TMP/sso.zip" \
+                  "https://github.com/9p4/jellyfin-plugin-sso/releases/download/v4.0.0.3/sso-authentication_4.0.0.3.zip" || true
+
+                if [ -f "$PLUGIN_TMP/sso.zip" ]; then
+                  ${pkgs.unzip}/bin/unzip -o "$PLUGIN_TMP/sso.zip" -d "$PLUGIN_TMP/plugin" 2>/dev/null || true
+                  for dll in "$PLUGIN_TMP/plugin"/*.dll; do
+                    [ -f "$dll" ] && $KUBECTL cp "$dll" "${ns}/$JELLYFIN_POD:/config/plugins/SSO-Auth/$(basename $dll)" 2>/dev/null || true
+                  done
+                  [ -f "$PLUGIN_TMP/plugin/meta.json" ] && $KUBECTL cp "$PLUGIN_TMP/plugin/meta.json" "${ns}/$JELLYFIN_POD:/config/plugins/SSO-Auth/meta.json" 2>/dev/null || true
+                  rm -rf "$PLUGIN_TMP"
+
+                  $KUBECTL rollout restart deployment jellyfin -n ${ns}
+                  $KUBECTL rollout status deployment jellyfin -n ${ns} --timeout=180s
+                  sleep 5
+
+                  pkill -f 'port-forward.*jellyfin' 2>/dev/null || true
+                  sleep 2
+                  $KUBECTL port-forward -n ${ns} svc/jellyfin 18096:8096 &
+                  PF_PID=$!
+                  sleep 5
+
+                  for i in $(seq 1 30); do
+                    if $CURL -s http://localhost:18096/System/Info/Public 2>/dev/null | grep -q "ServerName"; then
+                      break
+                    fi
+                    sleep 3
+                  done
+
+                  ADMIN_USER=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_USER")
+                  ADMIN_PASSWORD=$(get_secret_value "${ns}" "jellyfin-credentials" "ADMIN_PASSWORD")
+                  if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASSWORD" ]; then
+                    AUTH_RESPONSE=$($CURL -s -X POST "http://localhost:18096/Users/AuthenticateByName" \
+                      -H "Content-Type: application/json" \
+                      -H "X-Emby-Authorization: MediaBrowser Client=\"SSO-Setup\", Device=\"NixOS\", DeviceId=\"setup\", Version=\"1.0\"" \
+                      -d "{\"Username\":\"$ADMIN_USER\",\"Pw\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
+                    ACCESS_TOKEN=$(echo "$AUTH_RESPONSE" | $JQ -r '.AccessToken // empty' 2>/dev/null || echo "")
+
+                    if [ -n "$ACCESS_TOKEN" ]; then
+                      $CURL -s -X POST "http://localhost:18096/sso/OID/Add/Authentik?api_key=$ACCESS_TOKEN" \
+                        -H "Content-Type: application/json" \
+                        -d "{
+                          \"oidEndpoint\": \"https://$(hostname auth)/application/o/jellyfin/\",
+                          \"oidClientId\": \"$JELLYFIN_CLIENT_ID\",
+                          \"oidSecret\": \"$JELLYFIN_CLIENT_SECRET\",
+                          \"enabled\": true,
+                          \"enableAuthorization\": true,
+                          \"enableAllFolders\": true,
+                          \"enabledFolders\": [],
+                          \"adminRoles\": [\"admins\"],
+                          \"roles\": [],
+                          \"enableFolderRoles\": false,
+                          \"folderRoleMapping\": [],
+                          \"roleClaim\": \"groups\",
+                          \"oidScopes\": [\"openid\", \"profile\", \"email\"],
+                          \"schemeOverride\": \"https\",
+                          \"disableHttps\": false,
+                          \"doNotValidateEndpoints\": false,
+                          \"doNotValidateIssuerName\": false
+                        }" 2>/dev/null
+
+                      BRANDING_TMP=$(mktemp)
+                      cat > "$BRANDING_TMP" << 'ENDJSON'
+          {
+            "LoginDisclaimer": "<form action=\"/sso/OID/start/Authentik\" style=\"margin: 1em 0;\"><button class=\"raised block emby-button button-submit\" type=\"submit\" style=\"width: 100%; padding: 0.9em 1em; margin-bottom: 0.5em;\">Sign in with Authentik</button></form><hr style=\"margin: 1em 0; border-color: rgba(255,255,255,0.1);\">",
+            "CustomCss": ".disclaimerContainer { display: block; margin-bottom: 1em; }",
+            "SplashscreenEnabled": false
+          }
+          ENDJSON
+                      $CURL -s -X POST "http://localhost:18096/System/Configuration/branding?api_key=$ACCESS_TOKEN" \
+                        -H "Content-Type: application/json" -d @"$BRANDING_TMP" 2>/dev/null
+                      rm -f "$BRANDING_TMP"
+                    fi
+                  fi
+                  kill $PF_PID 2>/dev/null || true
+                fi
               fi
             fi
           fi
-        fi
 
-        print_success "Jellyfin config" \
-          "URL: https://$(hostname jellyfin)" \
-          "" \
-          "Credentials stored in K8s secret jellyfin-credentials" \
-          "SSO: 'Sign in with Authentik' button on login page"
+          print_success "Jellyfin config" \
+            "URL: https://$(hostname jellyfin)" \
+            "" \
+            "Credentials stored in K8s secret jellyfin-credentials" \
+            "SSO: 'Sign in with Authentik' button on login page"
 
-        create_marker "${configMarkerFile}"
-      '';
+          create_marker "${configMarkerFile}"
+        '';
+      };
     };
-  };
-}
+  }
+)

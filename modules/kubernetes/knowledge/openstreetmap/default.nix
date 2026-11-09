@@ -8,7 +8,6 @@
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -17,9 +16,9 @@ let
 
   awk = "${pkgs.gawk}/bin/awk";
 
-  cloudNas = lib.findFirst (
-    cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "openstreetmap"
-  ) null (lib.attrValues config.homelab.nas);
+  cloudNas = lib.findFirst (cfg: cfg.enabled && (cfg.cloudPaths or { }) ? "openstreetmap") null (
+    lib.attrValues config.cluster.nas
+  );
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.openstreetmap}" else null;
 
@@ -141,125 +140,127 @@ let
     };
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.openstreetmap = {
-    group = "knowledge";
-    title = "OpenStreetMap";
-    icon = "mdi-map";
-    subtitle = "Offline Maps";
-    url = "https://${k8s.hostname "maps"}";
-    workload = {
-      namespace = "openstreetmap";
-      name = "openstreetmap";
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.openstreetmap) (
+  lib.recursiveUpdate release {
+    dashboard.items.openstreetmap = {
+      group = "knowledge";
+      title = "OpenStreetMap";
+      icon = "mdi-map";
+      subtitle = "Offline Maps";
+      url = "https://${k8s.hostname "maps"}";
+      workload = {
+        namespace = "openstreetmap";
+        name = "openstreetmap";
+      };
+      sort = 20;
     };
-    sort = 20;
-  };
-  systemd.services.openstreetmap-setup = {
-    after = (release.systemd.services.openstreetmap-setup.after or [ ]) ++ [
-      "nfs-storage-setup.service"
-    ];
-    wants = [ "nfs-storage-setup.service" ];
-    serviceConfig.ExecStartPre = "${preHelm}";
-  };
+    systemd.services.openstreetmap-setup = {
+      after = (release.systemd.services.openstreetmap-setup.after or [ ]) ++ [
+        "nfs-storage-setup.service"
+      ];
+      wants = [ "nfs-storage-setup.service" ];
+      serviceConfig.ExecStartPre = "${preHelm}";
+    };
 
-  # Monthly world.pmtiles refresh (~120 GB from build.protomaps.com).
-  systemd.services.openstreetmap-update = {
-    description = "Update OpenStreetMap PMTiles data";
-    after = [
-      "openstreetmap-setup.service"
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "openstreetmap-setup.service"
-      "nfs-storage-setup.service"
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      TimeoutStartSec = "48h";
-      ExecStart = pkgs.writeShellScript "openstreetmap-update" ''
-        ${k8s.libShSource}
-        set -e
-        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    # Monthly world.pmtiles refresh (~120 GB from build.protomaps.com).
+    systemd.services.openstreetmap-update = {
+      description = "Update OpenStreetMap PMTiles data";
+      after = [
+        "openstreetmap-setup.service"
+        "nfs-storage-setup.service"
+      ];
+      wants = [
+        "openstreetmap-setup.service"
+        "nfs-storage-setup.service"
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        TimeoutStartSec = "48h";
+        ExecStart = pkgs.writeShellScript "openstreetmap-update" ''
+          ${k8s.libShSource}
+          set -e
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-        ${
-          if cloudHostPath == null then
-            ''
-              echo "ERROR: No cloudPaths.openstreetmap configured"
-              exit 1
-            ''
-          else
-            ''DATA_DIR="${cloudHostPath}"''
-        }
+          ${
+            if cloudHostPath == null then
+              ''
+                echo "ERROR: No cloudPaths.openstreetmap configured"
+                exit 1
+              ''
+            else
+              ''DATA_DIR="${cloudHostPath}"''
+          }
 
-        if [ ! -d "$DATA_DIR" ]; then
-          echo "ERROR: Data directory $DATA_DIR does not exist"
-          exit 1
-        fi
-
-        BUILDS_URL="https://build.protomaps.com"
-
-        LATEST=""
-        REMOTE_SIZE=""
-        for BACK in $(seq 0 10); do
-          CANDIDATE="$(date -u -d "$BACK days ago" +%Y%m%d).pmtiles"
-          SIZE=$($CURL -sIL "$BUILDS_URL/$CANDIDATE" \
-            | grep -i '^content-length:' | tail -1 | ${awk} '{print $2}' | tr -d '\r')
-          if [ -n "$SIZE" ] && [ "$SIZE" -gt 0 ] 2>/dev/null; then
-            LATEST="$CANDIDATE"
-            REMOTE_SIZE="$SIZE"
-            break
+          if [ ! -d "$DATA_DIR" ]; then
+            echo "ERROR: Data directory $DATA_DIR does not exist"
+            exit 1
           fi
-          echo "No build published for $CANDIDATE"
-        done
 
-        if [ -z "$LATEST" ]; then
-          echo "ERROR: no PMTiles build found in the last 10 days at $BUILDS_URL"
-          exit 1
-        fi
-        echo "Latest build: $LATEST ($REMOTE_SIZE bytes)"
+          BUILDS_URL="https://build.protomaps.com"
 
-        if [ -f "$DATA_DIR/world.pmtiles" ]; then
-          CURRENT_SIZE=$(stat -c%s "$DATA_DIR/world.pmtiles" 2>/dev/null || echo "0")
-          if [ "$CURRENT_SIZE" = "$REMOTE_SIZE" ]; then
-            echo "Already up to date"
-            exit 0
+          LATEST=""
+          REMOTE_SIZE=""
+          for BACK in $(seq 0 10); do
+            CANDIDATE="$(date -u -d "$BACK days ago" +%Y%m%d).pmtiles"
+            SIZE=$($CURL -sIL "$BUILDS_URL/$CANDIDATE" \
+              | grep -i '^content-length:' | tail -1 | ${awk} '{print $2}' | tr -d '\r')
+            if [ -n "$SIZE" ] && [ "$SIZE" -gt 0 ] 2>/dev/null; then
+              LATEST="$CANDIDATE"
+              REMOTE_SIZE="$SIZE"
+              break
+            fi
+            echo "No build published for $CANDIDATE"
+          done
+
+          if [ -z "$LATEST" ]; then
+            echo "ERROR: no PMTiles build found in the last 10 days at $BUILDS_URL"
+            exit 1
           fi
-        fi
+          echo "Latest build: $LATEST ($REMOTE_SIZE bytes)"
 
-        echo "Downloading world PMTiles (~130 GB)..."
-        RC=0
-        ${pkgs.aria2}/bin/aria2c \
-          -x 8 -s 8 -k 50M --continue=true \
-          -d "$DATA_DIR" -o "world.pmtiles.tmp" \
-          "$BUILDS_URL/$LATEST" || RC=$?
+          if [ -f "$DATA_DIR/world.pmtiles" ]; then
+            CURRENT_SIZE=$(stat -c%s "$DATA_DIR/world.pmtiles" 2>/dev/null || echo "0")
+            if [ "$CURRENT_SIZE" = "$REMOTE_SIZE" ]; then
+              echo "Already up to date"
+              exit 0
+            fi
+          fi
 
-        if [ "$RC" -ne 0 ] || [ ! -f "$DATA_DIR/world.pmtiles.tmp" ]; then
-          echo "ERROR: download failed (aria2c exit $RC)"
-          rm -f "$DATA_DIR/world.pmtiles.tmp"
-          exit 1
-        fi
+          echo "Downloading world PMTiles (~130 GB)..."
+          RC=0
+          ${pkgs.aria2}/bin/aria2c \
+            -x 8 -s 8 -k 50M --continue=true \
+            -d "$DATA_DIR" -o "world.pmtiles.tmp" \
+            "$BUILDS_URL/$LATEST" || RC=$?
 
-        GOT_SIZE=$(stat -c%s "$DATA_DIR/world.pmtiles.tmp")
-        if [ "$GOT_SIZE" != "$REMOTE_SIZE" ]; then
-          echo "ERROR: downloaded $GOT_SIZE bytes, expected $REMOTE_SIZE, discarding"
-          rm -f "$DATA_DIR/world.pmtiles.tmp"
-          exit 1
-        fi
+          if [ "$RC" -ne 0 ] || [ ! -f "$DATA_DIR/world.pmtiles.tmp" ]; then
+            echo "ERROR: download failed (aria2c exit $RC)"
+            rm -f "$DATA_DIR/world.pmtiles.tmp"
+            exit 1
+          fi
 
-        mv "$DATA_DIR/world.pmtiles.tmp" "$DATA_DIR/world.pmtiles"
-        $KUBECTL rollout restart deployment/openstreetmap -n ${ns}
-        $KUBECTL rollout status deployment/openstreetmap -n ${ns} --timeout=120s || true
-      '';
+          GOT_SIZE=$(stat -c%s "$DATA_DIR/world.pmtiles.tmp")
+          if [ "$GOT_SIZE" != "$REMOTE_SIZE" ]; then
+            echo "ERROR: downloaded $GOT_SIZE bytes, expected $REMOTE_SIZE, discarding"
+            rm -f "$DATA_DIR/world.pmtiles.tmp"
+            exit 1
+          fi
+
+          mv "$DATA_DIR/world.pmtiles.tmp" "$DATA_DIR/world.pmtiles"
+          $KUBECTL rollout restart deployment/openstreetmap -n ${ns}
+          $KUBECTL rollout status deployment/openstreetmap -n ${ns} --timeout=120s || true
+        '';
+      };
     };
-  };
 
-  systemd.timers.openstreetmap-update = {
-    description = "Monthly OpenStreetMap PMTiles update";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "*-*-01 03:00:00";
-      Persistent = true;
-      RandomizedDelaySec = "2h";
+    systemd.timers.openstreetmap-update = {
+      description = "Monthly OpenStreetMap PMTiles update";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnCalendar = "*-*-01 03:00:00";
+        Persistent = true;
+        RandomizedDelaySec = "2h";
+      };
     };
-  };
-}
+  }
+)

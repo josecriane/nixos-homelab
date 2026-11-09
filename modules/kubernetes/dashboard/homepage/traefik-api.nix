@@ -1,4 +1,6 @@
 {
+  config,
+  lib,
   k8s,
   pkgs,
   ...
@@ -9,7 +11,7 @@ let
   host = k8s.hostname "traefik-api";
   markerFile = "/var/lib/traefik-api-setup-done";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.dashboard) ({
   systemd.services.traefik-api-setup = {
     description = "Expose the read-only Traefik API behind basic auth for the dashboard";
     after = [
@@ -79,4 +81,4 @@ in
       '';
     };
   };
-}
+})

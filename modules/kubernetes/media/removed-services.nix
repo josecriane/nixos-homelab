@@ -1,4 +1,10 @@
-{ pkgs, k8s, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  k8s,
+  ...
+}:
 
 let
   ns = "media";
@@ -24,7 +30,7 @@ let
     rm -f /var/lib/kavita-config-setup-done
   '';
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.media-removed-cleanup = {
     description = "Remove the Bookshelf, Kavita, Sonarr ES and Radarr ES releases";
     after = [ "k3s-apps.target" ];
@@ -36,4 +42,4 @@ in
       ExecStart = cleanup;
     };
   };
-}
+})

@@ -5,15 +5,18 @@
 # Post-install password configuration runs in a separate systemd service
 # (see ./password.nix) to keep the Helm release reconciliation idempotent.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
-  paths = import ../../../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../../../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
 
   release = k8s.createHelmRelease {
     name = "qbittorrent";
@@ -32,41 +35,43 @@ let
     middlewares = k8s.forwardAuthMiddleware;
   };
 in
-lib.recursiveUpdate release {
-  dashboard.items.qbittorrent = {
-    group = "downloads";
-    title = "qBittorrent";
-    icon = "sh-qbittorrent";
-    subtitle = "Downloads";
-    url = "https://${k8s.hostname "qbit"}";
-    workload = {
-      namespace = "media";
-      name = "qbittorrent";
-    };
-    widget = {
-      type = "qbittorrent";
-      url = "http://qbittorrent.media.svc.cluster.local:8080";
-      secrets = {
-        username = {
-          namespace = "media";
-          secret = "qbittorrent-credentials";
-          key = "USER";
-        };
-        password = {
-          namespace = "media";
-          secret = "qbittorrent-credentials";
-          key = "PASSWORD";
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) (
+  lib.recursiveUpdate release {
+    dashboard.items.qbittorrent = {
+      group = "downloads";
+      title = "qBittorrent";
+      icon = "sh-qbittorrent";
+      subtitle = "Downloads";
+      url = "https://${k8s.hostname "qbit"}";
+      workload = {
+        namespace = "media";
+        name = "qbittorrent";
+      };
+      widget = {
+        type = "qbittorrent";
+        url = "http://qbittorrent.media.svc.cluster.local:8080";
+        secrets = {
+          username = {
+            namespace = "media";
+            secret = "qbittorrent-credentials";
+            key = "USER";
+          };
+          password = {
+            namespace = "media";
+            secret = "qbittorrent-credentials";
+            key = "PASSWORD";
+          };
         };
       };
+      sort = 80;
     };
-    sort = 80;
-  };
-  systemd.services.qbittorrent-setup = {
-    after = (release.systemd.services.qbittorrent-setup.after or [ ]) ++ [
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "nfs-storage-setup.service"
-    ];
-  };
-}
+    systemd.services.qbittorrent-setup = {
+      after = (release.systemd.services.qbittorrent-setup.after or [ ]) ++ [
+        "nfs-storage-setup.service"
+      ];
+      wants = [
+        "nfs-storage-setup.service"
+      ];
+    };
+  }
+)

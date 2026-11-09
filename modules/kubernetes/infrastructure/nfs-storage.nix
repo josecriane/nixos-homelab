@@ -1,7 +1,6 @@
 {
   config,
   lib,
-  serverConfig,
   ...
 }:
 
@@ -10,14 +9,14 @@
 # nfs-storage-cloud.nix. NAS mounts + nfs-heal come from upstream nfs-mounts.
 
 let
-  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled or false) config.homelab.nas;
-  mediaNas = lib.findFirst (
-    cfg: (cfg.role or "all") == "media" || (cfg.role or "all") == "all"
-  ) null (lib.attrValues enabledNas);
+  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled) config.cluster.nas;
+  mediaNas = lib.findFirst (cfg: cfg.role == "media" || cfg.role == "all") null (
+    lib.attrValues enabledNas
+  );
 
-  secondaryNasList = lib.filter (
-    cfg: (cfg.enabled or false) && (cfg.mediaPaths or [ ]) != [ ] && cfg != mediaNas
-  ) (lib.attrValues config.homelab.nas);
+  secondaryNasList = lib.filter (cfg: cfg.enabled && cfg.mediaPaths != [ ] && cfg != mediaNas) (
+    lib.attrValues config.cluster.nas
+  );
 
   nasMountPoint = "/mnt/nas1";
   pathToMountUnit =
@@ -29,7 +28,7 @@ let
     ++ map (path: pathToMountUnit "${nasMountPoint}/${path}") nasCfg.mediaPaths
   ) secondaryNasList;
 in
-{
+lib.mkIf (config.cluster.isBootstrap) ({
   k8s.storage.nfs = {
     namespace = "media";
     pvcName = "shared-data";
@@ -53,4 +52,4 @@ in
 
     inherit extraMountUnits;
   };
-}
+})

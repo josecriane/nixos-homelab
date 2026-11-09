@@ -25,7 +25,6 @@
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -127,9 +126,9 @@ let
     }
   ];
 
-  extraApps = serverConfig.authentik.forwardAuthApps or [ ];
+  extraApps = config.cluster.authentik.forwardAuthApps or [ ];
 
-  rawNas = config.homelab.nas;
+  rawNas = config.cluster.nas;
   nasConfig =
     if rawNas ? ip then
       {
@@ -139,7 +138,7 @@ let
       }
     else
       rawNas;
-  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled or false) nasConfig;
+  enabledNas = lib.filterAttrs (_: cfg: cfg.enabled) nasConfig;
 
   nasLabel =
     nasName:
@@ -152,7 +151,7 @@ let
     lib.mapAttrsToList (
       nasName: nasCfg:
       let
-        hostName = nasCfg.hostname or "nas";
+        hostName = nasCfg.hostname;
         suffix = lib.removePrefix "nas" hostName;
       in
       [
@@ -280,7 +279,7 @@ let
 
   blueprintFile = pkgs.writeText "authentik-blueprint.yaml" blueprintYaml;
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik) ({
   systemd.services.authentik-blueprint-setup = {
     description = "Push the authentik blueprint and apply it";
     after = [
@@ -394,4 +393,4 @@ in
       '';
     };
   };
-}
+})

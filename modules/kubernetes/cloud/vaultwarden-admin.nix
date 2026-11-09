@@ -3,8 +3,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  secretsPath,
   ...
 }:
 
@@ -13,15 +11,15 @@ let
   markerFile = "/var/lib/vaultwarden-admin-setup-done";
   credSecretName = "vaultwarden-admin-credentials";
   tokenSecretName = "vaultwarden-admin-token";
-  adminEmail = serverConfig.authentik.adminEmail;
+  adminEmail = config.cluster.authentik.adminEmail;
 
   python = pkgs.python3.withPackages (ps: [ ps.cryptography ]);
 
   vaultwardenAdminScript = ./scripts/vaultwarden-admin.py;
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) ({
   age.secrets.vaultwarden-admin-password = {
-    file = "${secretsPath}/vaultwarden-admin-password.age";
+    file = "${config.cluster.secretsPath}/vaultwarden-admin-password.age";
   };
 
   systemd.services.vaultwarden-admin-setup = {
@@ -185,4 +183,4 @@ in
       '';
     };
   };
-}
+})

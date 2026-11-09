@@ -3,8 +3,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  secretsPath,
   ...
 }:
 
@@ -17,7 +15,7 @@ let
   ns = "authentik";
   markerFile = "/var/lib/authentik-bootstrap-users-setup-done";
 
-  users = config.homelab.authentik.bootstrapUsers;
+  users = config.cluster.authentik.bootstrapUsers;
 
   userList = lib.mapAttrsToList (username: cfg: {
     inherit username;
@@ -67,64 +65,70 @@ let
     '') u.groups}
   '';
 in
-{
-  age.secrets = lib.mapAttrs' (
-    username: cfg:
-    lib.nameValuePair "authentik-user-${username}-password" {
-      file = "${secretsPath}/${cfg.passwordSecret}.age";
-    }
-  ) users;
+lib.mkIf
+  (
+    config.cluster.isBootstrap
+    && config.cluster.services.authentik
+    && config.cluster.authentik.bootstrapUsers != { }
+  )
+  ({
+    age.secrets = lib.mapAttrs' (
+      username: cfg:
+      lib.nameValuePair "authentik-user-${username}-password" {
+        file = "${config.cluster.secretsPath}/${cfg.passwordSecret}.age";
+      }
+    ) users;
 
-  systemd.services.authentik-bootstrap-users-setup = {
-    description = "Create bootstrap users in Authentik";
-    after = [
-      "authentik-sso-setup.service"
-      "k3s-core.target"
-    ];
-    requires = [ "k3s-core.target" ];
-    wants = [ "authentik-sso-setup.service" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    systemd.services.authentik-bootstrap-users-setup = {
+      description = "Create bootstrap users in Authentik";
+      after = [
+        "authentik-sso-setup.service"
+        "k3s-core.target"
+      ];
+      requires = [ "k3s-core.target" ];
+      wants = [ "authentik-sso-setup.service" ];
+      wantedBy = [ "k3s-extras.target" ];
+      before = [ "k3s-extras.target" ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "authentik-bootstrap-users-setup" ''
-        ${k8s.libShSource}
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "authentik-bootstrap-users-setup" ''
+          ${k8s.libShSource}
 
-        CONFIG_HASH="${configHash}"
-        setup_preamble_hash "${markerFile}" "Authentik bootstrap users" "$CONFIG_HASH"
-        wait_for_k3s
+          CONFIG_HASH="${configHash}"
+          setup_preamble_hash "${markerFile}" "Authentik bootstrap users" "$CONFIG_HASH"
+          wait_for_k3s
 
-        API_TOKEN=$(get_secret_value "${ns}" "authentik-api-token" "TOKEN")
-        if [ -z "$API_TOKEN" ]; then
-          echo "ERROR: authentik-api-token secret missing (is authentik-sso-setup done?)"
-          exit 1
-        fi
-        AUTH="Authorization: Bearer $API_TOKEN"
+          API_TOKEN=$(get_secret_value "${ns}" "authentik-api-token" "TOKEN")
+          if [ -z "$API_TOKEN" ]; then
+            echo "ERROR: authentik-api-token secret missing (is authentik-sso-setup done?)"
+            exit 1
+          fi
+          AUTH="Authorization: Bearer $API_TOKEN"
 
-        pkill -f 'port-forward.*19001' 2>/dev/null || true
-        sleep 3
-        $KUBECTL port-forward -n ${ns} svc/authentik-server 19001:80 &
-        PF_PID=$!
-        trap "kill $PF_PID 2>/dev/null || true" EXIT
-        sleep 5
-
-        API="http://localhost:19001/api/v3"
-
-        for i in $(seq 1 30); do
-          if $CURL -sf "http://localhost:19001/-/health/live/" &>/dev/null; then break; fi
-          echo "Waiting for Authentik API... ($i/30)"
+          pkill -f 'port-forward.*19001' 2>/dev/null || true
           sleep 3
-        done
+          $KUBECTL port-forward -n ${ns} svc/authentik-server 19001:80 &
+          PF_PID=$!
+          trap "kill $PF_PID 2>/dev/null || true" EXIT
+          sleep 5
 
-        ${lib.concatMapStrings renderUser userList}
+          API="http://localhost:19001/api/v3"
 
-        print_success "Authentik bootstrap users" \
-          "Users: ${lib.concatStringsSep ", " (map (u: u.username) userList)}"
+          for i in $(seq 1 30); do
+            if $CURL -sf "http://localhost:19001/-/health/live/" &>/dev/null; then break; fi
+            echo "Waiting for Authentik API... ($i/30)"
+            sleep 3
+          done
 
-        create_marker "${markerFile}" "$CONFIG_HASH"
-      '';
+          ${lib.concatMapStrings renderUser userList}
+
+          print_success "Authentik bootstrap users" \
+            "Users: ${lib.concatStringsSep ", " (map (u: u.username) userList)}"
+
+          create_marker "${markerFile}" "$CONFIG_HASH"
+        '';
+      };
     };
-  };
-}
+  })
