@@ -1,8 +1,8 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -13,9 +13,9 @@ let
   credSecretName = "vaultwarden-admin-credentials";
   tokenSecretName = "vaultwarden-admin-token";
   ssoSecretName = "authentik-sso-credentials";
-  domain = "${serverConfig.subdomain}.${serverConfig.domain}";
+  domain = "${config.cluster.subdomain}.${config.cluster.domain}";
 
-  runtimeScript = ''
+  runtime = ''
     signups="true"
     if [ -n "$(get_secret_value "${ns}" "${credSecretName}" "USER_EMAIL")" ]; then
       signups="false"
@@ -36,7 +36,7 @@ let
     fi
   '';
 
-  preScript = ''
+  preInstall = ''
     wait_for_traefik
     wait_for_certificate
 
@@ -60,8 +60,7 @@ let
     fi
   '';
 
-  release = k8s.createHelmRelease {
-    name = "vaultwarden";
+  release = {
     namespace = ns;
     tier = "core";
     timeout = "5m";
@@ -76,15 +75,18 @@ let
       TOKEN_SECRET = tokenSecretName;
     };
     runtimeSets = [ "signupsAllowed=$signups" ];
-    inherit runtimeScript preScript;
-    ingress = {
-      host = "vault";
-      service = "vaultwarden";
-      port = 80;
-    };
+    inherit runtime preInstall;
+    ingresses = [
+      {
+        host = "vault";
+        service = "vaultwarden";
+        port = 80;
+      }
+    ];
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) {
+  k8s.helmReleases.vaultwarden = release;
   dashboard.items.vaultwarden = {
     group = "cloud";
     title = "Vaultwarden";
@@ -100,19 +102,19 @@ lib.recursiveUpdate release {
   systemd.services.vaultwarden-sso-setup = {
     description = "Re-apply Vaultwarden once its SSO credentials exist";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "vaultwarden-setup.service"
       "vaultwarden-admin-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "vaultwarden-setup.service"
       "vaultwarden-admin-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -120,7 +122,7 @@ lib.recursiveUpdate release {
       ExecStart = pkgs.writeShellScript "vaultwarden-sso-setup" ''
         ${k8s.libShSource}
 
-        wait_for_k3s
+        wait_for_api
         wait_for_resource "secret" "${ns}" "${ssoSecretName}" 300
 
         if [ -z "$(get_secret_value "${ns}" "${ssoSecretName}" "VAULTWARDEN_CLIENT_SECRET")" ]; then

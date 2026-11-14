@@ -3,8 +3,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  secretsPath,
   ...
 }:
 
@@ -13,30 +11,30 @@ let
   markerFile = "/var/lib/vaultwarden-admin-setup-done";
   credSecretName = "vaultwarden-admin-credentials";
   tokenSecretName = "vaultwarden-admin-token";
-  adminEmail = serverConfig.authentik.adminEmail;
+  adminEmail = config.cluster.authentik.adminEmail;
 
   python = pkgs.python3.withPackages (ps: [ ps.cryptography ]);
 
   vaultwardenAdminScript = ./scripts/vaultwarden-admin.py;
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.vaultwarden) ({
   age.secrets.vaultwarden-admin-password = {
-    file = "${secretsPath}/vaultwarden-admin-password.age";
+    file = "${config.cluster.secretsPath}/vaultwarden-admin-password.age";
   };
 
   systemd.services.vaultwarden-admin-setup = {
     description = "Setup Vaultwarden admin user and organization";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "vaultwarden-setup.service"
     ];
     requires = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "vaultwarden-setup.service"
     ];
     # TIER 5: Extras
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -185,4 +183,4 @@ in
       '';
     };
   };
-}
+})

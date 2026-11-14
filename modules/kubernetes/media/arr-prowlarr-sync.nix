@@ -1,8 +1,8 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -70,7 +70,7 @@ let
     }
   ];
 
-  prowlarrCfg = serverConfig.prowlarr or { };
+  prowlarrCfg = config.cluster.prowlarr;
   indexers = prowlarrCfg.indexers or [ ];
   removedIndexers = prowlarrCfg.removedIndexers or [ ];
   indexerPriorities = prowlarrCfg.indexerPriorities or { };
@@ -100,21 +100,21 @@ let
 
   removeAppCall = name: "remove_app ${lib.escapeShellArg name}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-prowlarr-sync-setup = {
     description = "Configure Prowlarr to sync indexers with arr-stack apps";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-credentials-setup.service"
       "prowlarr-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "arr-credentials-setup.service"
       "prowlarr-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -125,7 +125,7 @@ in
         set +e
 
         setup_preamble "${markerFile}" "Prowlarr sync"
-        wait_for_k3s
+        wait_for_api
 
         ${arr.helpers}
 
@@ -451,4 +451,4 @@ in
       '';
     };
   };
-}
+})

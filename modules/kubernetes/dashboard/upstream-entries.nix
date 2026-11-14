@@ -3,17 +3,17 @@
 # down a layer. Everything installed by this repo registers its own entry from
 # the module that installs it.
 {
+  config,
   k8s,
   lib,
-  serverConfig,
   ...
 }:
 
 let
-  svc = serverConfig.services or { };
+  svc = config.cluster.services;
   enabled = name: svc.${name} or false;
 
-  longhorn = serverConfig.storage.longhorn;
+  longhorn = config.cluster.storage.longhorn;
   longhornEnabled = (longhorn.enable or false) && ((longhorn.ingress or null) != null);
 
   monitoringSecret = key: {

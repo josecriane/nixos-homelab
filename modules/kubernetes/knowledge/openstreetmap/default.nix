@@ -8,7 +8,6 @@
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -17,9 +16,9 @@ let
 
   awk = "${pkgs.gawk}/bin/awk";
 
-  cloudNas = lib.findFirst (
-    cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "openstreetmap"
-  ) null (lib.attrValues config.homelab.nas);
+  cloudNas = lib.findFirst (cfg: cfg.enabled && (cfg.cloudPaths or { }) ? "openstreetmap") null (
+    lib.attrValues config.cluster.nas
+  );
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.openstreetmap}" else null;
 
@@ -70,9 +69,9 @@ let
 
   assetsDir = if cloudHostPath != null then cloudHostPath else "/var/lib/openstreetmap";
 
-  preHelm = pkgs.writeShellScript "openstreetmap-pre-helm" ''
+  prepare = ''
     ${k8s.libShSource}
-    wait_for_k3s
+    wait_for_api
     ensure_namespace "${ns}"
 
     if ! $KUBECTL get pv openstreetmap-data-pv >/dev/null 2>&1; then
@@ -126,22 +125,28 @@ let
     $KUBECTL apply -f ${viewerConfigMap}
   '';
 
-  release = k8s.createHelmRelease {
-    name = "openstreetmap";
+  release = {
+    after = [
+      "nfs-storage-setup.service"
+    ];
+    inherit prepare;
     namespace = ns;
     tier = "extras";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
     valuesFile = ./values.yaml;
     waitFor = "openstreetmap";
-    ingress = {
-      host = "maps";
-      service = "openstreetmap";
-      port = 8080;
-    };
+    ingresses = [
+      {
+        host = "maps";
+        service = "openstreetmap";
+        port = 8080;
+      }
+    ];
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.openstreetmap) {
+  k8s.helmReleases.openstreetmap = release;
   dashboard.items.openstreetmap = {
     group = "knowledge";
     title = "OpenStreetMap";
@@ -153,13 +158,6 @@ lib.recursiveUpdate release {
       name = "openstreetmap";
     };
     sort = 20;
-  };
-  systemd.services.openstreetmap-setup = {
-    after = (release.systemd.services.openstreetmap-setup.after or [ ]) ++ [
-      "nfs-storage-setup.service"
-    ];
-    wants = [ "nfs-storage-setup.service" ];
-    serviceConfig.ExecStartPre = "${preHelm}";
   };
 
   # Monthly world.pmtiles refresh (~120 GB from build.protomaps.com).

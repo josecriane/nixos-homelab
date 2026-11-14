@@ -1,4 +1,5 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
@@ -33,23 +34,23 @@ let
     target:
     "ensure_jellyfin_notification ${target.app} ${lib.escapeShellArg (builtins.toJSON target.deleteEvents)}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.jellyfin-integration-setup = {
     description = "Configure Jellyfin API key, Jellyseerr initialization, and Jellyfin notifications";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-credentials-setup.service"
       "jellyfin-setup.service"
       "jellyseerr-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "arr-credentials-setup.service"
       "jellyfin-setup.service"
       "jellyseerr-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -60,7 +61,7 @@ in
         set +e
 
         setup_preamble "${markerFile}" "Jellyfin integration"
-        wait_for_k3s
+        wait_for_api
 
         ${arr.helpers}
 
@@ -416,4 +417,4 @@ in
       '';
     };
   };
-}
+})

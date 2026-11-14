@@ -9,20 +9,19 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "syncthing";
-  puid = toString (serverConfig.puid);
-  pgid = toString (serverConfig.pgid);
+  puid = toString (config.cluster.puid);
+  pgid = toString (config.cluster.pgid);
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.syncthing) ({
   systemd.services.syncthing-folders-reconcile = {
     description = "Reconcile Syncthing folder paths under /var/syncthing/data/";
     after = [
-      "k3s-extras.target"
+      "k8s-extras.target"
       "syncthing-setup.service"
     ];
     wants = [ "syncthing-setup.service" ];
@@ -33,7 +32,7 @@ in
         ${k8s.libShSource}
         set -e
 
-        wait_for_k3s
+        wait_for_api
 
         if ! $KUBECTL get deploy -n ${ns} syncthing &>/dev/null; then
           echo "syncthing deployment not found; skipping"
@@ -102,4 +101,4 @@ in
       Unit = "syncthing-folders-reconcile.service";
     };
   };
-}
+})

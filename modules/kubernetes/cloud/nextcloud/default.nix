@@ -3,25 +3,23 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  nodeConfig,
   ...
 }:
 
 let
   chartVersion = "9.0.5";
   ns = "nextcloud";
-  ipParts = lib.splitString "." nodeConfig.ip;
+  ipParts = lib.splitString "." config.cluster.node.ip;
   lanSubnet = "${builtins.elemAt ipParts 0}.${builtins.elemAt ipParts 1}.${builtins.elemAt ipParts 2}.0/24";
 
   # Find NAS with cloudPaths.nextcloud for PV fallback creation
-  cloudNas = lib.findFirst (
-    cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "nextcloud"
-  ) null (lib.attrValues config.homelab.nas);
+  cloudNas = lib.findFirst (cfg: cfg.enabled && (cfg.cloudPaths or { }) ? "nextcloud") null (
+    lib.attrValues config.cluster.nas
+  );
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.nextcloud}" else null;
 
-  runtimeScript = ''
+  runtime = ''
     # Reuse existing passwords if available (avoid breaking DB on re-runs)
     NEXTCLOUD_ADMIN_PASSWORD=$(get_secret_value "${ns}" "nextcloud" "nextcloud-password")
     if [ -n "$NEXTCLOUD_ADMIN_PASSWORD" ]; then
@@ -53,7 +51,7 @@ let
 
   '';
 
-  preScript = ''
+  preInstall = ''
     wait_for_traefik
     wait_for_certificate
 
@@ -154,7 +152,7 @@ let
     fi
   '';
 
-  extraScript = ''
+  postInstall = ''
     # Wait for pod (Nextcloud takes longer)
     sleep 30
     for i in $(seq 1 60); do
@@ -190,8 +188,7 @@ let
       "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
   '';
 
-  release = k8s.createHelmRelease {
-    name = "nextcloud";
+  release = {
     namespace = ns;
     tier = "apps";
     timeout = "15m";
@@ -210,13 +207,15 @@ let
       "externalDatabase.password=$POSTGRES_PASSWORD"
       "postgresql.auth.password=$POSTGRES_PASSWORD"
     ];
-    inherit runtimeScript preScript extraScript;
+    inherit runtime preInstall postInstall;
     manifests = [ ./manifests.yaml ];
-    ingress = {
-      host = "cloud";
-      service = "nextcloud";
-      port = 8080;
-    };
+    ingresses = [
+      {
+        host = "cloud";
+        service = "nextcloud";
+        port = 8080;
+      }
+    ];
     middlewares = [
       {
         name = "nextcloud-headers";
@@ -225,7 +224,8 @@ let
     ];
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.nextcloud) {
+  k8s.helmReleases.nextcloud = release;
   dashboard.items.nextcloud = {
     group = "cloud";
     title = "Nextcloud";
@@ -260,17 +260,17 @@ lib.recursiveUpdate release {
     description = "Configure Nextcloud OIDC with Authentik";
     # After media (SSO already configured)
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "nextcloud-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "nextcloud-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";

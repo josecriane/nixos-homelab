@@ -5,34 +5,40 @@
 # the oidc-config init container. A separate systemd service
 # (jellyseerr-oidc-config-setup) creates that ConfigMap once SSO is ready.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "media";
-  domain = "${serverConfig.subdomain}.${serverConfig.domain}";
-  oidcMarkerFile = "/var/lib/jellyseerr-oidc-config-done";
+  domain = "${config.cluster.subdomain}.${config.cluster.domain}";
+  oidcMarkerFile = "/var/lib/jellyseerr-oidc-config-setup-done";
 
-  release = k8s.createHelmRelease {
-    name = "jellyseerr";
+  release = {
+    after = [
+      "nfs-storage-setup.service"
+      "jellyfin-setup.service"
+    ];
     namespace = ns;
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
     valuesFile = ./values.yaml;
     waitFor = "jellyseerr";
-    ingress = {
-      host = "requests";
-      service = "jellyseerr";
-      port = 5055;
-    };
+    ingresses = [
+      {
+        host = "requests";
+        service = "jellyseerr";
+        port = 5055;
+      }
+    ];
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+  k8s.helmReleases.jellyseerr = release;
   dashboard.items.jellyseerr = {
     group = "requests";
     title = "Jellyseerr";
@@ -54,33 +60,23 @@ lib.recursiveUpdate release {
     };
     sort = 20;
   };
-  systemd.services.jellyseerr-setup = {
-    after = (release.systemd.services.jellyseerr-setup.after or [ ]) ++ [
-      "nfs-storage-setup.service"
-      "jellyfin-setup.service"
-    ];
-    wants = [
-      "nfs-storage-setup.service"
-      "jellyfin-setup.service"
-    ];
-  };
 
   systemd.services.jellyseerr-oidc-config-setup = {
     description = "Configure Jellyseerr OIDC via ConfigMap";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "jellyseerr-setup.service"
       "authentik-sso-setup.service"
       "jellyfin-integration-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "jellyseerr-setup.service"
       "authentik-sso-setup.service"
       "jellyfin-integration-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -89,7 +85,7 @@ lib.recursiveUpdate release {
         ${k8s.libShSource}
         setup_preamble "${oidcMarkerFile}" "Jellyseerr OIDC"
 
-        wait_for_k3s
+        wait_for_api
 
         if ! $KUBECTL get secret authentik-sso-credentials -n ${ns} &>/dev/null; then
           echo "No SSO credentials found, skipping OIDC configuration"

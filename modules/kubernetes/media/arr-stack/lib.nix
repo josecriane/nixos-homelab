@@ -1,23 +1,23 @@
 # Shared helper to build an arr-instance Helm release module.
 # Each instance (prowlarr, sonarr, radarr) uses the
 # bjw-s/app-template chart. Values are built as a Nix attrset and passed
-# directly to createHelmRelease (serialized to JSON, converted to YAML at
+# directly to k8s.helmReleases (serialized to JSON, converted to YAML at
 # deploy time via yq). No template file, no token substitution.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
 
-  puidInt = serverConfig.puid;
-  pgidInt = serverConfig.pgid;
+  puidInt = config.cluster.puid;
+  pgidInt = config.cluster.pgid;
   puid = toString puidInt;
   pgid = toString pgidInt;
-  timezone = serverConfig.timezone;
+  timezone = config.cluster.timezone;
 
   initApiKeyScriptRaw = builtins.readFile ./init-api-key.sh;
   initApiKeyScript =
@@ -43,8 +43,12 @@ let
       extraAfter ? [ ],
     }:
     let
-      release = k8s.createHelmRelease {
-        inherit name;
+      release = {
+        after = [
+          "arr-secrets-setup.service"
+          "nfs-storage-setup.service"
+        ]
+        ++ extraAfter;
         namespace = "media";
         tier = "apps";
         chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -125,29 +129,18 @@ let
           };
         };
         waitFor = name;
-        ingress = {
-          host = ingressHost;
-          service = name;
-          port = port;
-        };
+        ingresses = [
+          {
+            host = ingressHost;
+            service = name;
+            port = port;
+          }
+        ];
         middlewares = k8s.forwardAuthMiddleware;
       };
     in
-    lib.recursiveUpdate release {
-      systemd.services."${name}-setup" = {
-        after =
-          (release.systemd.services."${name}-setup".after or [ ])
-          ++ [
-            "arr-secrets-setup.service"
-            "nfs-storage-setup.service"
-          ]
-          ++ extraAfter;
-        wants = [
-          "arr-secrets-setup.service"
-          "nfs-storage-setup.service"
-        ]
-        ++ extraAfter;
-      };
+    {
+      k8s.helmReleases.${name} = release;
       dashboard.items = lib.optionalAttrs (dashboard != null) {
         ${name} = {
           group = "downloads";

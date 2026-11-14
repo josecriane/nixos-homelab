@@ -5,18 +5,23 @@
 # Post-install password configuration runs in a separate systemd service
 # (see ./password.nix) to keep the Helm release reconciliation idempotent.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
-  paths = import ../../../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../../../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
 
-  release = k8s.createHelmRelease {
-    name = "qbittorrent";
+  release = {
+    after = [
+      "nfs-storage-setup.service"
+    ];
     namespace = "media";
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -24,15 +29,18 @@ let
     valuesFile = ./values.yaml;
     values = lib.optionalAttrs (paths.secondary != [ ]) { persistence = paths.persistence; };
     waitFor = "qbittorrent";
-    ingress = {
-      host = "qbit";
-      service = "qbittorrent";
-      port = 8080;
-    };
+    ingresses = [
+      {
+        host = "qbit";
+        service = "qbittorrent";
+        port = 8080;
+      }
+    ];
     middlewares = k8s.forwardAuthMiddleware;
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+  k8s.helmReleases.qbittorrent = release;
   dashboard.items.qbittorrent = {
     group = "downloads";
     title = "qBittorrent";
@@ -60,13 +68,5 @@ lib.recursiveUpdate release {
       };
     };
     sort = 80;
-  };
-  systemd.services.qbittorrent-setup = {
-    after = (release.systemd.services.qbittorrent-setup.after or [ ]) ++ [
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "nfs-storage-setup.service"
-    ];
   };
 }

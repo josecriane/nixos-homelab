@@ -3,14 +3,13 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   ns = "authentik";
   markerFile = "/var/lib/authentik-sso-setup-done";
-  oidcApps = (serverConfig.authentik.oidcApps or [ ]) ++ config.sso.oidcApps;
+  oidcApps = (config.cluster.authentik.oidcApps or [ ]) ++ config.sso.oidcApps;
   oidcEnv = app: lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] app.slug);
   oidcNamespaces = lib.unique (lib.filter (n: n != null) (map (app: app.namespace or null) oidcApps));
   oidcRef = app: "\$${oidcEnv app}_CLIENT_SECRET";
@@ -34,19 +33,19 @@ let
     + " \\\n                  \"${oidcEnv app}_CLIENT_SECRET=${oidcRef app}\""
   ) oidcApps;
 
-  domain = "${serverConfig.subdomain}.${serverConfig.domain}";
+  domain = "${config.cluster.subdomain}.${config.cluster.domain}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.authentik) ({
   systemd.services.authentik-sso-setup = {
     description = "Setup Authentik SSO integration for all services";
     # After Tier 3 Core (authentik already installed)
     after = [
-      "k3s-core.target"
+      "k8s-core.target"
       "authentik-setup.service"
     ];
-    requires = [ "k3s-core.target" ];
+    requires = [ "k8s-core.target" ];
     wants = [ "authentik-setup.service" ];
-    wantedBy = [ "k3s-apps.target" ]; # Ready before media starts
+    wantedBy = [ "k8s-apps.target" ]; # Ready before media starts
 
     serviceConfig = {
       Type = "oneshot";
@@ -55,7 +54,7 @@ in
         ${k8s.libShSource}
 
         setup_preamble "${markerFile}" "Authentik SSO"
-        wait_for_k3s
+        wait_for_api
 
         # Configure CoreDNS for local DNS resolution using custom ConfigMap
         echo "Configuring CoreDNS to resolve local domains..."
@@ -74,7 +73,7 @@ in
 
         if [ -z "$TRAEFIK_IP" ]; then
           echo "WARN: Could not get Traefik IP, using configured IP"
-          TRAEFIK_IP="${serverConfig.traefikIP}"
+          TRAEFIK_IP="${config.cluster.traefikIP}"
         fi
 
         CONFIG_BEFORE=$($KUBECTL get configmap coredns-custom -n kube-system -o jsonpath='{.data.local-dns\.server}' 2>/dev/null || echo "")
@@ -83,7 +82,7 @@ in
           name = "sso-coredns-custom";
           manifests = [ ./coredns-custom.yaml ];
           substitutions = {
-            TRAEFIK_IP = serverConfig.traefikIP;
+            TRAEFIK_IP = config.cluster.traefikIP;
           };
         }}
 
@@ -102,7 +101,7 @@ in
             echo "WARN: CoreDNS restart took longer than expected, continuing..."
           }
 
-          echo "CoreDNS configured: *.${domain} -> ${serverConfig.traefikIP}"
+          echo "CoreDNS configured: *.${domain} -> ${config.cluster.traefikIP}"
         fi
 
         # Wait for Authentik to be ready
@@ -446,4 +445,4 @@ in
       '';
     };
   };
-}
+})

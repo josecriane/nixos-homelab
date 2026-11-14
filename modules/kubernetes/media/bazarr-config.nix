@@ -3,8 +3,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
-  secretsPath,
   ...
 }:
 
@@ -13,28 +11,28 @@ let
   ns = "media";
   markerFile = "/var/lib/bazarr-config-setup-done";
   curl = "curl";
-  opensubtitlesUsername = config.homelab.opensubtitles.username;
+  opensubtitlesUsername = config.cluster.opensubtitles.username;
   migratorPodYaml = ./_migrator-pod.yaml;
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   age.secrets.opensubtitles-password = lib.mkIf (opensubtitlesUsername != "") {
-    file = "${secretsPath}/opensubtitles-password.age";
+    file = "${config.cluster.secretsPath}/opensubtitles-password.age";
   };
 
   systemd.services.bazarr-config-setup = {
     description = "Configure Bazarr subtitle providers and connections";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-credentials-setup.service"
       "bazarr-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "arr-credentials-setup.service"
       "bazarr-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -50,7 +48,7 @@ in
                   exit 0
                 fi
 
-                wait_for_k3s
+                wait_for_api
 
                 ${arr.readyHelper}
 
@@ -273,4 +271,4 @@ in
       '';
     };
   };
-}
+})

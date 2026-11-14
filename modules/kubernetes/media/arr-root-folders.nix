@@ -1,14 +1,17 @@
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   arr = import ./arr-lib.nix { inherit lib; };
-  paths = import ../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
   markerFile = "/var/lib/arr-root-folders-setup-done";
 
   folders = [
@@ -47,17 +50,17 @@ let
     in
     "arr_ensure ${folder.app} rootfolder ${lib.escapeShellArg payload} ${lib.escapeShellArg match} ${lib.escapeShellArg folder.path}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-root-folders-setup = {
     description = "Configure root folders for arr-stack services";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-credentials-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [ "arr-credentials-setup.service" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -68,7 +71,7 @@ in
         set +e
 
         setup_preamble "${markerFile}" "Root folders"
-        wait_for_k3s
+        wait_for_api
 
         ${arr.helpers}
 
@@ -82,4 +85,4 @@ in
       '';
     };
   };
-}
+})

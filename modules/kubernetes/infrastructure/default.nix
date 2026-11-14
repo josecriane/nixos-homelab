@@ -1,14 +1,5 @@
 {
-  lib,
-  nodeConfig,
-  ...
-}:
-
-let
-  isBootstrap = nodeConfig.bootstrap or false;
-in
-{
-  imports = lib.optionals isBootstrap [
+  imports = [
     ./nfs-storage.nix
     ./nfs-storage-cloud.nix
     ./nfs-storage-secondary.nix

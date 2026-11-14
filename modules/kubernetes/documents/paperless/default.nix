@@ -2,16 +2,15 @@
   k8s,
   config,
   lib,
-  serverConfig,
   ...
 }:
 
 let
   ns = "extra";
 
-  cloudNas = lib.findFirst (
-    cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "paperless"
-  ) null (lib.attrValues config.homelab.nas);
+  cloudNas = lib.findFirst (cfg: cfg.enabled && (cfg.cloudPaths or { }) ? "paperless") null (
+    lib.attrValues config.cluster.nas
+  );
 
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.paperless}" else null;
@@ -24,7 +23,7 @@ let
     };
   };
 
-  preScript = ''
+  preInstall = ''
     if [ -z "${toString cloudHostPath}" ]; then
       echo "ERROR: no cloudPaths.paperless configured on any enabled NAS"
       exit 1
@@ -32,7 +31,7 @@ let
 
     for dir in media consume export; do
       mkdir -p "${toString cloudHostPath}/$dir"
-      chown ${toString serverConfig.puid}:${toString serverConfig.pgid} "${toString cloudHostPath}/$dir" 2>/dev/null || true
+      chown ${toString config.cluster.puid}:${toString config.cluster.pgid} "${toString cloudHostPath}/$dir" 2>/dev/null || true
       chmod 775 "${toString cloudHostPath}/$dir" 2>/dev/null || true
     done
 
@@ -86,7 +85,7 @@ let
     esac
   '';
 
-  extraScript = ''
+  postInstall = ''
     if [ "$PAPERLESS_SECRET_CHANGED" = "1" ]; then
       echo "paperless-oidc changed, restarting the deployment so it picks the new values up..."
       $KUBECTL -n ${ns} rollout restart deploy/paperless
@@ -94,8 +93,11 @@ let
     fi
   '';
 
-  release = k8s.createHelmRelease {
-    name = "paperless";
+  release = {
+    after = [
+      "authentik-sso-setup.service"
+      "nfs-storage-cloud-setup.service"
+    ];
     namespace = ns;
     tier = "extras";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -104,15 +106,18 @@ let
     waitFor = "paperless";
     timeout = "10m";
     pssLevel = "privileged";
-    inherit preScript extraScript;
-    ingress = {
-      host = "paperless";
-      service = "paperless";
-      port = 8000;
-    };
+    inherit preInstall postInstall;
+    ingresses = [
+      {
+        host = "paperless";
+        service = "paperless";
+        port = 8000;
+      }
+    ];
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.paperless) {
+  k8s.helmReleases.paperless = release;
   dashboard.items.paperless = {
     group = "documents";
     title = "Paperless";
@@ -151,14 +156,4 @@ lib.recursiveUpdate release {
     }
   ];
 
-  systemd.services.paperless-setup = {
-    after = release.systemd.services.paperless-setup.after ++ [
-      "authentik-sso-setup.service"
-      "nfs-storage-cloud-setup.service"
-    ];
-    wants = [
-      "authentik-sso-setup.service"
-      "nfs-storage-cloud-setup.service"
-    ];
-  };
 }

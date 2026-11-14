@@ -7,7 +7,6 @@
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -15,28 +14,33 @@ let
   ns = "kiwix";
   aria2c = "${pkgs.aria2}/bin/aria2c";
 
-  cloudNas = lib.findFirst (cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "kiwix") null (
-    lib.attrValues config.homelab.nas
+  cloudNas = lib.findFirst (cfg: cfg.enabled && (cfg.cloudPaths or { }) ? "kiwix") null (
+    lib.attrValues config.cluster.nas
   );
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.kiwix}" else null;
 
-  release = k8s.createHelmRelease {
-    name = "kiwix-serve";
+  release = {
+    after = [
+      "nfs-storage-cloud-setup.service"
+    ];
     namespace = ns;
     tier = "extras";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
     version = "4.6.1";
     valuesFile = ./values.yaml;
     waitFor = "kiwix-serve";
-    ingress = {
-      host = "wiki";
-      service = "kiwix-serve";
-      port = 8080;
-    };
+    ingresses = [
+      {
+        host = "wiki";
+        service = "kiwix-serve";
+        port = 8080;
+      }
+    ];
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.kiwix) {
+  k8s.helmReleases.kiwix-serve = release;
   dashboard.items.kiwix = {
     group = "knowledge";
     title = "Kiwix";
@@ -48,12 +52,6 @@ lib.recursiveUpdate release {
       name = "kiwix-serve";
     };
     sort = 10;
-  };
-  systemd.services.kiwix-serve-setup = {
-    after = (release.systemd.services.kiwix-serve-setup.after or [ ]) ++ [
-      "nfs-storage-cloud-setup.service"
-    ];
-    wants = [ "nfs-storage-cloud-setup.service" ];
   };
 
   # kiwix-update: downloads ZIM files from download.kiwix.org on a timer.

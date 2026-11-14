@@ -3,7 +3,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -12,13 +11,13 @@ let
   markerFile = "/var/lib/immich-setup-done";
 
   # Find NAS with cloudPaths.immich for PV fallback creation
-  cloudNas = lib.findFirst (cfg: (cfg.enabled or false) && (cfg.cloudPaths or { }) ? "immich") null (
-    lib.attrValues config.homelab.nas
+  cloudNas = lib.findFirst (cfg: cfg.enabled && (cfg.cloudPaths or { }) ? "immich") null (
+    lib.attrValues config.cluster.nas
   );
   cloudHostPath =
     if cloudNas != null then "/mnt/${cloudNas.hostname}/${cloudNas.cloudPaths.immich}" else null;
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.immich) ({
   dashboard.items.immich = {
     group = "cloud";
     title = "Immich";
@@ -34,10 +33,10 @@ in
   };
   systemd.services.immich-setup = {
     description = "Setup Immich photo management";
-    after = [ "k3s-core.target" ];
-    requires = [ "k3s-core.target" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    after = [ "k8s-core.target" ];
+    requires = [ "k8s-core.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -46,7 +45,7 @@ in
         ${k8s.libShSource}
         setup_preamble "${markerFile}" "Immich"
 
-        wait_for_k3s
+        wait_for_api
         wait_for_certificate
         ensure_namespace "${ns}"
 
@@ -229,17 +228,17 @@ in
   systemd.services.immich-oauth-setup = {
     description = "Configure Immich OAuth with Authentik";
     after = [
-      "k3s-core.target"
+      "k8s-core.target"
       "immich-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-core.target" ];
+    requires = [ "k8s-core.target" ];
     wants = [
       "immich-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -275,7 +274,7 @@ in
         # Check if we already have credentials
         ADMIN_EMAIL=$(get_secret_value "${ns}" "immich-local-credentials" "USER")
         ADMIN_PASSWORD=$(get_secret_value "${ns}" "immich-local-credentials" "PASSWORD")
-        [ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="admin@${serverConfig.domain}"
+        [ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="admin@${config.cluster.domain}"
 
         # Try to create admin user (will fail if already exists, that's OK)
         if [ -z "$ADMIN_PASSWORD" ]; then
@@ -360,4 +359,4 @@ in
       '';
     };
   };
-}
+})

@@ -4,18 +4,25 @@
 # secret (created by arr-secrets-setup.service). Ingress uses Authentik
 # ForwardAuth middleware + Lidarr's own local auth.
 {
+  config,
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
-  paths = import ../../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
 
-  release = k8s.createHelmRelease {
-    name = "lidarr";
+  release = {
+    after = [
+      "arr-secrets-setup.service"
+      "arr-stack-setup.service"
+      "nfs-storage-setup.service"
+    ];
     namespace = "media";
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -23,15 +30,18 @@ let
     valuesFile = ./values.yaml;
     values = lib.optionalAttrs (paths.secondary != [ ]) { persistence = paths.persistence; };
     waitFor = "lidarr";
-    ingress = {
-      host = "lidarr";
-      service = "lidarr";
-      port = 8686;
-    };
+    ingresses = [
+      {
+        host = "lidarr";
+        service = "lidarr";
+        port = 8686;
+      }
+    ];
     middlewares = k8s.forwardAuthMiddleware;
   };
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+  k8s.helmReleases.lidarr = release;
   dashboard.items.lidarr = {
     group = "downloads";
     title = "Lidarr";
@@ -52,17 +62,5 @@ lib.recursiveUpdate release {
       };
     };
     sort = 50;
-  };
-  systemd.services.lidarr-setup = {
-    after = (release.systemd.services.lidarr-setup.after or [ ]) ++ [
-      "arr-secrets-setup.service"
-      "arr-stack-setup.service"
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "arr-secrets-setup.service"
-      "arr-stack-setup.service"
-      "nfs-storage-setup.service"
-    ];
   };
 }

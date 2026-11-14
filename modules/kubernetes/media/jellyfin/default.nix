@@ -9,7 +9,6 @@
   k8s,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -39,7 +38,7 @@ let
     "Peliculas ES"
     "Series ES"
   ];
-  libraries = config.homelab.jellyfin.libraries or defaultLibraries;
+  libraries = config.cluster.jellyfin.libraries or defaultLibraries;
   libraryNames = map (l: l.name) libraries;
   pathsOf = l: l.paths or [ l.path ];
   libraryEntries = lib.concatMapStringsSep " " (
@@ -50,8 +49,11 @@ let
     lib.filter (n: !(lib.elem n libraryNames)) (map (l: l.name) defaultLibraries ++ legacyLibraries)
   );
 
-  release = k8s.createHelmRelease {
-    name = "jellyfin";
+  release = {
+    after = [
+      "nfs-storage-setup.service"
+    ];
+    inherit prepare;
     namespace = ns;
     tier = "apps";
     chart = "oci://ghcr.io/bjw-s-labs/helm/app-template";
@@ -62,18 +64,20 @@ let
     };
     waitFor = "jellyfin";
     pssLevel = "privileged";
-    ingress = {
-      host = "jellyfin";
-      service = "jellyfin";
-      port = 8096;
-    };
+    ingresses = [
+      {
+        host = "jellyfin";
+        service = "jellyfin";
+        port = 8096;
+      }
+    ];
   };
-  # Workaround: createHelmRelease labels PSS *after* helm install, which fails
+  # Workaround: k8s.helmReleases labels PSS *after* helm install, which fails
   # on a fresh install because Jellyfin needs privileged (hostPath /dev/dri).
   # Pre-label the namespace so the first helm install can create the pod.
-  pssPreLabel = pkgs.writeShellScript "jellyfin-ns-pss-prelabel" ''
+  prepare = ''
     ${k8s.libShSource}
-    wait_for_k3s
+    wait_for_api
     $KUBECTL create namespace ${ns} --dry-run=client -o yaml | $KUBECTL apply -f -
     $KUBECTL label --overwrite namespace ${ns} \
       pod-security.kubernetes.io/enforce=privileged \
@@ -81,7 +85,8 @@ let
       pod-security.kubernetes.io/audit=privileged
   '';
 in
-lib.recursiveUpdate release {
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) {
+  k8s.helmReleases.jellyfin = release;
   dashboard.items.jellyfin = {
     group = "media";
     title = "Jellyfin";
@@ -104,30 +109,21 @@ lib.recursiveUpdate release {
     };
     sort = 10;
   };
-  systemd.services.jellyfin-setup = {
-    after = (release.systemd.services.jellyfin-setup.after or [ ]) ++ [
-      "nfs-storage-setup.service"
-    ];
-    wants = [
-      "nfs-storage-setup.service"
-    ];
-    serviceConfig.ExecStartPre = "${pssPreLabel}";
-  };
 
   systemd.services.jellyfin-config-setup = {
     description = "Configure Jellyfin wizard, libraries, VA-API, SSO";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "jellyfin-setup.service"
       "authentik-sso-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "jellyfin-setup.service"
       "authentik-sso-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -136,7 +132,7 @@ lib.recursiveUpdate release {
         ${k8s.libShSource}
         setup_preamble "${configMarkerFile}" "Jellyfin config"
 
-        wait_for_k3s
+        wait_for_api
         wait_for_deployment "${ns}" "jellyfin" 300
 
         pkill -f 'port-forward.*jellyfin' 2>/dev/null || true

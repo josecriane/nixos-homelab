@@ -11,7 +11,6 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
@@ -238,21 +237,21 @@ let
 
   sed = "${pkgs.gnused}/bin/sed";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.recyclarr-setup = {
     description = "Setup Recyclarr TRaSH Guides sync";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-stack-setup.service"
       "arr-secrets-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [
       "arr-stack-setup.service"
       "arr-secrets-setup.service"
     ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -264,7 +263,7 @@ in
         # in pod api-keys or pause state.
         echo "Installing Recyclarr..."
 
-        wait_for_k3s
+        wait_for_api
 
         TMPDIR=$(mktemp -d)
         trap "rm -rf $TMPDIR" EXIT
@@ -392,4 +391,4 @@ in
       '';
     };
   };
-}
+})

@@ -1,4 +1,10 @@
-{ pkgs, k8s, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  k8s,
+  ...
+}:
 
 let
   ns = "media";
@@ -11,7 +17,7 @@ let
 
   cleanup = pkgs.writeShellScript "media-removed-cleanup" ''
     ${k8s.libShSource}
-    wait_for_k3s
+    wait_for_api
     for release in ${toString releases}; do
       if $HELM status "$release" -n ${ns} >/dev/null 2>&1; then
         $HELM uninstall "$release" -n ${ns}
@@ -24,16 +30,16 @@ let
     rm -f /var/lib/kavita-config-setup-done
   '';
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.media-removed-cleanup = {
     description = "Remove the Bookshelf, Kavita, Sonarr ES and Radarr ES releases";
-    after = [ "k3s-apps.target" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    after = [ "k8s-apps.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = cleanup;
     };
   };
-}
+})

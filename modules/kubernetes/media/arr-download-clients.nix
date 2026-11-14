@@ -3,13 +3,15 @@
   config,
   lib,
   pkgs,
-  serverConfig,
   ...
 }:
 
 let
   arr = import ./arr-lib.nix { inherit lib; };
-  paths = import ../media-paths.nix { inherit lib k8s serverConfig; };
+  paths = import ../media-paths.nix {
+    inherit lib k8s;
+    cluster = config.cluster;
+  };
   ns = arr.ns;
   markerFile = "/var/lib/arr-download-clients-setup-done";
 
@@ -20,7 +22,7 @@ let
     "books"
   ];
 
-  qbitCfg = config.homelab.qbittorrent;
+  qbitCfg = config.cluster.qbittorrent;
   qbitMaxActiveDownloads = toString (qbitCfg.maxActiveDownloads or 5);
   qbitMaxActiveTorrents = toString (qbitCfg.maxActiveTorrents or 10);
   qbitMaxActiveUploads = toString (qbitCfg.maxActiveUploads or 3);
@@ -48,17 +50,17 @@ let
 
   addClient = c: "add_qbit_client ${c.app} ${c.field} ${c.category}";
 in
-{
+lib.mkIf (config.cluster.isBootstrap && config.cluster.services.media) ({
   systemd.services.arr-download-clients-setup = {
     description = "Configure qBittorrent as download client in arr-stack services";
     after = [
-      "k3s-apps.target"
+      "k8s-apps.target"
       "arr-credentials-setup.service"
     ];
-    requires = [ "k3s-apps.target" ];
+    requires = [ "k8s-apps.target" ];
     wants = [ "arr-credentials-setup.service" ];
-    wantedBy = [ "k3s-extras.target" ];
-    before = [ "k3s-extras.target" ];
+    wantedBy = [ "k8s-extras.target" ];
+    before = [ "k8s-extras.target" ];
 
     serviceConfig = {
       Type = "oneshot";
@@ -69,7 +71,7 @@ in
         set +e
 
         setup_preamble "${markerFile}" "Download clients"
-        wait_for_k3s
+        wait_for_api
 
         ${arr.helpers}
 
@@ -240,4 +242,4 @@ in
       '';
     };
   };
-}
+})

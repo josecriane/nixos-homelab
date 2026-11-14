@@ -1,16 +1,5 @@
-{
-  lib,
-  serverConfig,
-  nodeConfig,
-  ...
-}:
+{ lib, ... }:
 
-let
-  svc = serverConfig.services or { };
-  enabled = name: svc.${name} or false;
-  isBootstrap = nodeConfig.bootstrap or false;
-  authentikOn = isBootstrap && (enabled "authentik");
-in
 {
   options.sso.oidcApps = lib.mkOption {
     description = ''
@@ -41,19 +30,12 @@ in
     );
   };
 
-  imports =
-    lib.optionals authentikOn [
-      ./blueprint.nix
-      ./authentik.nix
-      ./sso.nix
-    ]
-    ++ lib.optionals (authentikOn && (serverConfig.authentik.ldap.enable or false)) [
-      ./ldap.nix
-    ]
-    ++ lib.optionals (authentikOn && (serverConfig.authentik.google.enable or false)) [
-      ./google-source.nix
-    ]
-    ++ lib.optionals (authentikOn && (serverConfig.authentik.bootstrapUsers or { }) != { }) [
-      ./authentik-users.nix
-    ];
+  imports = [
+    ./blueprint.nix
+    ./authentik.nix
+    ./sso.nix
+    ./ldap.nix
+    ./google-source.nix
+    ./authentik-users.nix
+  ];
 }

@@ -2,19 +2,17 @@
   config,
   lib,
   pkgs,
-  nodeConfig,
-  secretsPath,
   ...
 }:
 
 let
-  ipParts = lib.splitString "." nodeConfig.ip;
+  ipParts = lib.splitString "." config.cluster.node.ip;
   lanSubnet = "${builtins.elemAt ipParts 0}.${builtins.elemAt ipParts 1}.${builtins.elemAt ipParts 2}.0/24";
 in
-{
+lib.mkIf (config.cluster.isBootstrap) ({
   # Secret for Tailscale auth key
   age.secrets.tailscale-auth-key = {
-    file = "${secretsPath}/tailscale-auth-key.age";
+    file = "${config.cluster.secretsPath}/tailscale-auth-key.age";
   };
 
   # Tailscale VPN
@@ -36,4 +34,4 @@ in
 
   # Tailscale package available system-wide
   environment.systemPackages = [ pkgs.tailscale ];
-}
+})
