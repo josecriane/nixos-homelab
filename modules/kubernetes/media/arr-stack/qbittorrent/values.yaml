@@ -38,6 +38,7 @@ service:
   qbittorrent-bt:
     controller: qbittorrent
     type: LoadBalancer
+    externalTrafficPolicy: Local
     ports:
       bittorrent-tcp:
         enabled: true
